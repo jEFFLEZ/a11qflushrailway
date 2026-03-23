@@ -14,8 +14,17 @@ export async function runTests() {
     req.on('end', ()=>{ try { calls.push(JSON.parse(raw)); } catch(e){} res.end('ok'); });
   }).listen(0);
   const port = (srv.address() as any).port;
+  const qflushDir = path.join(process.cwd(), '.qflush');
+  if (!fs.existsSync(qflushDir)) fs.mkdirSync(qflushDir, { recursive: true });
   const cfgPath = path.join(process.cwd(), '.qflush', 'logic-config.json');
-  const cfg = JSON.parse(fs.readFileSync(cfgPath,'utf8'));
+  const cfg = fs.existsSync(cfgPath)
+    ? JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    : {
+        allowedCommandSubstrings: ['npm', 'node', 'echo'],
+        allowedCommands: ['echo hello', 'npm run build'],
+        commandTimeoutMs: 15000,
+        webhookUrl: ''
+      };
   cfg.webhookUrl = `http://127.0.0.1:${port}`;
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2), 'utf8');
 

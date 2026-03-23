@@ -10,12 +10,29 @@ let fetchFn: any = undefined;
 const fetchMod = importUtil('../utils/fetch') || importUtil('node-fetch');
 if (fetchMod) fetchFn = fetchMod.default || fetchMod;
 if (!fetchFn && typeof (globalThis as any).fetch === 'function') fetchFn = (globalThis as any).fetch.bind(globalThis);
+// Fallback: try requiring the local utils/fetch.js directly when importUtil fails
+if (!fetchFn) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const localF = require(path.join(__dirname, '..', 'utils', 'fetch.js'));
+    fetchFn = (localF && (localF.default || localF));
+  } catch (e) {}
+}
 
 let saveEngineHistory: any;
-try { saveEngineHistory = require('./storage').saveEngineHistory; } catch (e) { saveEngineHistory = undefined; console.warn('[executor] load storage failed', String(e)); }
+try {
+  // Attempt dynamic import (works in ESM and Node ESM test runners).
+  import('./storage.cjs').then((m: any) => { saveEngineHistory = m && (m.saveEngineHistory || (m.default && m.default.saveEngineHistory)); }).catch(() => {
+    import('./storage.js').then((m: any) => { saveEngineHistory = m && (m.saveEngineHistory || (m.default && m.default.saveEngineHistory)); }).catch(() => {});
+  });
+} catch (e) { saveEngineHistory = undefined; console.warn('[executor] load storage failed', String(e)); }
 
 let callReload: any;
-try { callReload = require('./daemon-control').callReload; } catch (e) { callReload = undefined; console.warn('[executor] load daemon-control failed', String(e)); }
+try {
+  import('./daemon-control.cjs').then((m: any) => { callReload = m && (m.callReload || (m.default && m.default.callReload)); }).catch(() => {
+    import('./daemon-control.js').then((m: any) => { callReload = m && (m.callReload || (m.default && m.default.callReload)); }).catch(() => {});
+  });
+} catch (e) { callReload = undefined; console.warn('[executor] load daemon-control failed', String(e)); }
 
 const DEFAULT_CFG = { allowedCommandSubstrings: ['npm','node','echo'], allowedCommands: ['echo hello','npm run build'], commandTimeoutMs: 15000, webhookUrl: '' };
 
@@ -151,9 +168,23 @@ export async function executeAction(action: string, ctx: any = {}): Promise<any>
       const result = await safeExecFile(cmd, dir, cfg.commandTimeoutMs || 15000);
       const res = { success: result.code === 0, stdout: result.stdout, stderr: result.stderr, code: result.code };
 
-      // webhook notify
-      if (cfg.webhookUrl && fetchFn) {
-        try { await fetchFn(cfg.webhookUrl, { method: 'POST', body: JSON.stringify({ action: cmd, path: ctx.path || null, result: res }), headers: { 'Content-Type': 'application/json' } }); } catch (e) { console.warn('[executor] webhook notify failed', String(e)); }
+      // webhook notify — prefer direct HTTP to localhost to avoid fetch shims
+      if (cfg.webhookUrl) {
+        try {
+          if (String(cfg.webhookUrl).includes('127.0.0.1') || String(cfg.webhookUrl).includes('localhost')) {
+            const u = new URL(cfg.webhookUrl);
+            const httpmod: any = u.protocol === 'https:' ? require('https') : require('http');
+            await new Promise((resolve) => {
+              const body = JSON.stringify({ action: cmd, path: ctx.path || null, result: res });
+              const req = httpmod.request({ hostname: u.hostname, port: u.port, path: (u.pathname || '/') + (u.search || ''), method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (r: any) => { r.on('data', () => {}); r.on('end', () => resolve(undefined)); });
+              req.on('error', () => resolve(undefined));
+              req.write(body);
+              req.end();
+            });
+          } else if (fetchFn) {
+            await fetchFn(cfg.webhookUrl, { method: 'POST', body: JSON.stringify({ action: cmd, path: ctx.path || null, result: res }), headers: { 'Content-Type': 'application/json' } });
+          }
+        } catch (e) { console.warn('[executor] webhook notify failed', String(e)); }
       }
 
       // persist execution history
@@ -178,7 +209,23 @@ export async function executeAction(action: string, ctx: any = {}): Promise<any>
       writeNpzMetadata(metadata);
 
       const res = { success: true, id, path: outFile, metadata };
-      if (cfg.webhookUrl && fetchFn) { try { await fetchFn(cfg.webhookUrl, { method: 'POST', body: JSON.stringify({ action: 'npz.encode', path: filePath, result: res }), headers: { 'Content-Type': 'application/json' } }); } catch (e) { console.warn('[executor] webhook notify npz failed', String(e)); } }
+      if (cfg.webhookUrl) {
+        try {
+          if (String(cfg.webhookUrl).includes('127.0.0.1') || String(cfg.webhookUrl).includes('localhost')) {
+            const u = new URL(cfg.webhookUrl);
+            const httpmod: any = u.protocol === 'https:' ? require('https') : require('http');
+            await new Promise((resolve) => {
+              const body = JSON.stringify({ action: 'npz.encode', path: filePath, result: res });
+              const req = httpmod.request({ hostname: u.hostname, port: u.port, path: (u.pathname || '/') + (u.search || ''), method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (r: any) => { r.on('data', () => {}); r.on('end', () => resolve(undefined)); });
+              req.on('error', () => resolve(undefined));
+              req.write(body);
+              req.end();
+            });
+          } else if (fetchFn) {
+            await fetchFn(cfg.webhookUrl, { method: 'POST', body: JSON.stringify({ action: 'npz.encode', path: filePath, result: res }), headers: { 'Content-Type': 'application/json' } });
+          }
+        } catch (e) { console.warn('[executor] webhook notify npz failed', String(e)); }
+      }
       try { if (saveEngineHistory) saveEngineHistory('npz-'+Date.now(), Date.now(), filePath, 'npz.encode', res); } catch (e) { console.warn('[executor] saveEngineHistory npz failed', String(e)); }
       return res;
     }

@@ -15,7 +15,16 @@ export function resolvePackagePath(pkgName: string) {
       dir = p;
     }
     if (existsSync(join(dir, "package.json"))) return dir;
-  } catch (err) { console.warn('[package] resolvePackagePath failed:', err); }
+  } catch (err: any) {
+    // If package uses conditional exports without a `require` target, Node may
+    // throw ERR_PACKAGE_PATH_NOT_EXPORTED when resolving from CommonJS.
+    // Fall back silently to the node_modules guess below to avoid noisy logs.
+    if (err && err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+      // silent fallback — we'll try the node_modules guess below
+    } else {
+      console.warn('[package] resolvePackagePath failed:', err && err.code ? `${err.code}: ${err.message}` : String(err));
+    }
+  }
   // fallback: node_modules path
   const guess = join(process.cwd(), "node_modules", pkgName);
   if (existsSync(join(guess, "package.json"))) return guess;
@@ -26,8 +35,8 @@ export function readPackageJson(pkgPath: string) {
   try {
     const content = readFileSync(join(pkgPath, "package.json"), "utf8");
     return JSON.parse(content);
-  } catch (err) {
-    console.warn('[package] readPackageJson failed:', err);
+  } catch (err: any) {
+    console.warn('[package] readPackageJson failed:', err && err.code ? `${err.code}: ${err.message}` : String(err));
     return null;
   }
 }

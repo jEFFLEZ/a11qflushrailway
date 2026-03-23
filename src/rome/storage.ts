@@ -1,3 +1,16 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
+export function saveEngineHistory(key: string, ts: number, p: string, cmd: string, res: any) {
+  try {
+    const dir = path.join(process.cwd(), '.qflush', 'history');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${String(key)}.json`);
+    try { fs.writeFileSync(file, JSON.stringify({ key, ts, path: p, cmd, res }, null, 2), 'utf8'); } catch (e) { /* ignore */ }
+  } catch (e) { /* swallow */ }
+}
+
+export default { saveEngineHistory };
 // ROME-TAG: 0x75DEC5
 
 import * as fs from 'fs';

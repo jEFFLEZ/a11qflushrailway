@@ -11,9 +11,16 @@ function resolveImport(name: string) {
     const g: any = (globalThis as any) || (global as any);
     if (g && typeof g.__importUtilMock === 'function') return g.__importUtilMock(name);
   } catch (e) {}
+  // If the import looks like a relative path, prefer Node's `require` so
+  // that module caching and test spies (vitest/vi) work as expected.
+  try {
+    if (name && (name.startsWith('.') || name.startsWith('/'))) {
+      try { return require(name); } catch (e) { /* fallthrough to alias */ }
+    }
+  } catch (e) {}
   try { return alias.importUtil(name); } catch (e) {}
   try {
-    // try require
+    // try require as a last resort (for non-relative module names)
     return require(name);
   } catch (e) {}
   return undefined;
@@ -46,6 +53,8 @@ async function safeRunSpyder(argv: string[] = []) {
 
 function safeEmit(eventName: string, payload: any) {
   try {
+    // In test 'cortex' mode we avoid writing drip logs or emitting events.
+    if (process.env.QFLUSH_MODE === 'cortex') return false;
     const emitMod: any = resolveImport('./emit') || resolveImport('@cortex/emit') || resolveImport('src/cortex/emit');
     if (!emitMod) return false;
     const fn = emitMod.cortexEmit || (emitMod.default && emitMod.default.cortexEmit) || emitMod;

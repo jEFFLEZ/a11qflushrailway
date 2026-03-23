@@ -29,52 +29,7 @@ export function saveLicense(rec) {
         return false;
     }
 }
-async function verifyWithGumroad(key, productId) {
-    const token = process.env.GUMROAD_TOKEN;
-    if (!token)
-        throw new Error('GUMROAD_TOKEN not configured');
-    const url = `https://api.gumroad.com/v2/licenses/verify`;
-    const body = new URLSearchParams();
-    body.append('product_permalink', productId || '');
-    body.append('license_key', key);
-    // Dynamic import to support both CJS and ESM environments
-    let fetchFn = undefined;
-    try {
-        const m = await import('node-fetch');
-        fetchFn = (m && m.default) || m;
-    }
-    catch (e) {
-        // node-fetch not available or cannot be imported; try global fetch / undici fallback handled by caller
-        try {
-            // try undici dynamic require as fallback
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const undici = require('undici');
-            if (undici && typeof undici.fetch === 'function')
-                fetchFn = undici.fetch;
-        }
-        catch (_) {
-            // ignore
-        }
-    }
-    if (!fetchFn && typeof globalThis.fetch === 'function')
-        fetchFn = globalThis.fetch;
-    if (!fetchFn)
-        throw new Error('No fetch implementation available (install node-fetch or undici)');
-    const res = await fetchFn(url, { method: 'POST', body, headers: { Authorization: `Bearer ${token}` } });
-    const json = await res.json();
-    return json;
-}
-export async function activateLicense(key, productId) {
-    const resp = await verifyWithGumroad(key, productId);
-    if (resp && resp.success) {
-        const purchase = resp.purchase || {};
-        const lic = { key, product_id: purchase.product_id || productId, valid: true, expires_at: purchase ? purchase.license_expires_at : null, verifiedAt: Date.now() };
-        saveLicense(lic);
-        return { ok: true, license: lic, raw: resp };
-    }
-    // failure
-    const lic = { key, product_id: productId, valid: false, verifiedAt: Date.now() };
-    saveLicense(lic);
-    return { ok: false, error: resp };
+export async function activateLicense(_key, _productId) {
+    return { ok: false, error: 'License activation not available' };
 }
 export default { readLicense, saveLicense, activateLicense };

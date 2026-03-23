@@ -2,7 +2,7 @@
 import license from '../utils/license.js';
 export default async function runLicenseActivate(args) {
     const key = args[0];
-    const product = args[1] || process.env.GUMROAD_PRODUCT_MONTHLY;
+    const product = args[1];
     if (!key) {
         console.error('usage: qflush license:activate <key> [product_id]');
         return 1;
@@ -10,7 +10,7 @@ export default async function runLicenseActivate(args) {
     try {
         const res = await license.activateLicense(key, product);
         if (res.ok) {
-            console.log('License activated:', res.license);
+            console.log('License activated');
             return 0;
         }
         console.error('Activation failed:', res.error);

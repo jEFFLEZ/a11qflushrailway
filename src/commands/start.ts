@@ -496,6 +496,10 @@ export async function startModule(mod: string, opts: qflushOptions | undefined, 
   // If embed mode is enabled, use startService
   const embed = process.env.QFLUSH_EMBED_SERVICES === '1';
   if (embed) {
+    // For spyder in embed mode: probe and persist port config (if free), then start via service
+    if (mod === 'spyder') {
+      await probeAndPersistSpyderPort();
+    }
     try {
       await startService(mod, { flags });
       return;

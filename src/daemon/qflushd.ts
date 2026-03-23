@@ -61,7 +61,7 @@ export async function startServer(port?: number) {
         return resolve({ ok: true, port: (port || process.env.QFLUSHD_PORT || 4500) });
       }
 
-      const p = port || (process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : 43421);
+      const p = port || (process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : 43421);
       const srv = http.createServer(async (req, res) => {
         try {
           const parsed = url.parse(req.url || '', true);
@@ -109,6 +109,13 @@ export async function startServer(port?: number) {
               writeSafeModes('joker');
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ success: true, mode: 'joker' }));
+              return;
+            }
+
+            // root / handler — health check for Railway and other PaaS probes
+            if (method === 'GET' && (parsed.pathname === '/' || parsed.pathname === '')) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, service: 'qflush' }));
               return;
             }
 
@@ -387,7 +394,7 @@ export default { startServer, stopServer };
 // If executed directly, start the server on provided port
 const __filename = fileURLToPath(import.meta.url);
 if (process.argv && process.argv[1] === __filename) {
-  const port = process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : 43421;
+  const port = process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : 43421;
   (async () => {
     try {
       await startServer(port);

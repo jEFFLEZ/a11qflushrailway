@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["nodejs", "dotnet-sdk"]
+
+[phases.build]
+cmds = ["npm ci", "npm run railway:build"]
+
+[phases.start]
+cmds = ["npm run railway:start"]

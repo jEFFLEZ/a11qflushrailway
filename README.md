@@ -192,3 +192,4 @@ Contribution guidance
 - Avoid adding static default imports of known ESM-only packages (e.g. `import fetch from 'node-fetch'`). Use the project's pattern: dynamic `import('node-fetch')` with fallback to `undici` or `globalThis.fetch`.
 - Run `npm run check-esm-imports` before opening PRs to detect static imports of known ESM-only packages.
 - If you need to remove CJS fallbacks, open a PR and test thoroughly in CI — this is a breaking, repo-wide change.
+# a11qflushrailway

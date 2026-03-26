@@ -12,6 +12,10 @@ function isWindows() {
   return process.platform === 'win32';
 }
 
+function shouldLogNpzDebug() {
+  return process.env.QFLUSH_DEBUG_NPZ === '1' || process.env.QFLUSH_DEBUG === '1';
+}
+
 function findLocalBin(moduleName: string, cwd: string): string | null {
   // try node_modules/.bin/<name> or <pkg>/bin
   const localBin = path.join(cwd, 'node_modules', '.bin', moduleName + (isWindows() ? '.cmd' : ''));
@@ -21,7 +25,9 @@ function findLocalBin(moduleName: string, cwd: string): string | null {
     const pkgPath = require.resolve(moduleName, { paths: [cwd] });
     return pkgPath;
   } catch (error_) {
-    logger.warn && logger.warn(`[NPZ] findLocalBin.resolve failed for ${moduleName}: ${String(error_)}`);
+    if (shouldLogNpzDebug()) {
+      logger.debug && logger.debug(`[NPZ] findLocalBin.resolve failed for ${moduleName}: ${String(error_)}`);
+    }
     return null;
   }
 }
@@ -32,7 +38,9 @@ function resolveViaModuleGate(pkgName: string): { cmd: string; args: string[]; c
     // run via node <pkgPath>
     return { cmd: process.execPath, args: [pkgPath], cwd: path.dirname(pkgPath) };
   } catch (error_) {
-    logger.warn && logger.warn(`[NPZ] resolveViaModuleGate failed for ${pkgName}: ${String(error_)}`);
+    if (shouldLogNpzDebug()) {
+      logger.debug && logger.debug(`[NPZ] resolveViaModuleGate failed for ${pkgName}: ${String(error_)}`);
+    }
     return null;
   }
 }

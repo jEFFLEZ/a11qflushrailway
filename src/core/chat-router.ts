@@ -50,6 +50,27 @@ export type ChatRouterStatus = {
   };
 };
 
+export type ChatBackendProbeResult = {
+  backend: ChatBackendKind;
+  source: string;
+  configured: boolean;
+  enabled: boolean;
+  ok: boolean | null;
+  status: number | null;
+  url: string | null;
+  durationMs: number | null;
+  error: string | null;
+};
+
+export type ChatRouterProbeReport = {
+  enabled: boolean;
+  live: boolean;
+  cached: boolean;
+  timestamp: string | null;
+  ttlMs: number;
+  results: Record<string, ChatBackendProbeResult>;
+};
+
 export type ChatProxyResult = {
   ok: boolean;
   output?: string;
@@ -186,6 +207,16 @@ function getChatRouterConfig() {
     openaiApiKey,
     ollamaUrl: normalizeBase(trim(process.env.OLLAMA_URL) || 'http://127.0.0.1:11434'),
     ollamaConfigured: !!trim(process.env.OLLAMA_URL),
+    localCompletionHealthUrl: normalizeBase(trim(process.env.LOCAL_LLM_HEALTH_URL)),
+    qflushChatUpstreamHealthUrl: normalizeBase(trim(process.env.QFLUSH_CHAT_UPSTREAM_HEALTH_URL)),
+    openaiCompatibleHealthUrl: normalizeBase(
+      trim(process.env.OPENAI_COMPATIBLE_HEALTH_URL) ||
+      trim(process.env.LLAMA_BASE_HEALTH_URL) ||
+      trim(process.env.LLM_URL_HEALTH_URL) ||
+      trim(process.env.A11_SERVER_HEALTH_URL)
+    ),
+    openaiHealthUrl: normalizeBase(trim(process.env.OPENAI_HEALTH_URL)),
+    ollamaHealthUrl: normalizeBase(trim(process.env.OLLAMA_HEALTH_URL)),
   };
 }
 
@@ -494,4 +525,243 @@ export function buildChatRouterStatus(): ChatRouterStatus {
       },
     },
   };
+}
+
+let probeCache: { value: ChatRouterProbeReport; updatedAt: number } | null = null;
+
+function buildProbeUrls(baseUrl: string, suffixes: string[]) {
+  const base = normalizeBase(baseUrl);
+  if (!base) return [];
+  if (!suffixes.length) return [base];
+  return buildCandidateUrls(base, suffixes);
+}
+
+async function fetchProbe(url: string, headers: Record<string, string>, timeoutMs: number) {
+  const startedAt = Date.now();
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    const id = setTimeout(() => {
+      clearTimeout(id);
+      reject(new Error(`timeout_after_${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  const fetchPromise = (async () => {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+    } as any);
+    const text = await response.text();
+    return {
+      ok: !!response.ok,
+      status: Number(response.status || 0),
+      text,
+      durationMs: Date.now() - startedAt,
+    };
+  })();
+
+  return await Promise.race([fetchPromise, timeoutPromise]);
+}
+
+function buildProbeDescriptor(
+  backend: ChatBackendKind,
+  source: string,
+  configured: boolean,
+  url: string | null
+): ChatBackendProbeResult {
+  return {
+    backend,
+    source,
+    configured,
+    enabled: configured,
+    ok: configured ? false : null,
+    status: null,
+    url,
+    durationMs: null,
+    error: configured ? 'probe_not_run' : null,
+  };
+}
+
+async function probeCandidates(
+  backend: ChatBackendKind,
+  source: string,
+  urls: string[],
+  headers: Record<string, string>,
+  timeoutMs: number
+): Promise<ChatBackendProbeResult> {
+  if (!urls.length) {
+    return buildProbeDescriptor(backend, source, false, null);
+  }
+
+  let lastError = 'probe_failed';
+  let lastStatus: number | null = null;
+  let lastUrl: string | null = null;
+  let lastDuration: number | null = null;
+
+  for (const url of urls) {
+    try {
+      const result = await fetchProbe(url, headers, timeoutMs);
+      lastStatus = result.status;
+      lastUrl = url;
+      lastDuration = result.durationMs;
+      if (result.ok) {
+        return {
+          backend,
+          source,
+          configured: true,
+          enabled: true,
+          ok: true,
+          status: result.status,
+          url,
+          durationMs: result.durationMs,
+          error: null,
+        };
+      }
+      lastError = result.text || `http_${result.status}`;
+    } catch (error) {
+      lastUrl = url;
+      lastStatus = 0;
+      lastDuration = null;
+      lastError = String(error);
+    }
+  }
+
+  return {
+    backend,
+    source,
+    configured: true,
+    enabled: true,
+    ok: false,
+    status: lastStatus,
+    url: lastUrl,
+    durationMs: lastDuration,
+    error: lastError,
+  };
+}
+
+function shouldProbeUpstreams() {
+  return process.env.QFLUSH_HEALTH_PROBE_UPSTREAMS === '1';
+}
+
+function shouldProbeOpenAi() {
+  return process.env.QFLUSH_PROBE_OPENAI === '1' || !!trim(process.env.OPENAI_HEALTH_URL);
+}
+
+export async function probeConfiguredChatBackends(options: { force?: boolean; enable?: boolean } = {}): Promise<ChatRouterProbeReport> {
+  const enabled = typeof options.enable === 'boolean' ? options.enable : shouldProbeUpstreams();
+  const ttlMs = Number(trim(process.env.QFLUSH_HEALTH_PROBE_TTL_MS) || '15000');
+  const now = Date.now();
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      live: false,
+      cached: false,
+      timestamp: probeCache?.value.timestamp || null,
+      ttlMs,
+      results: probeCache?.value.results || {},
+    };
+  }
+
+  if (!options.force && probeCache && now - probeCache.updatedAt < ttlMs) {
+    return {
+      ...probeCache.value,
+      enabled: true,
+      live: false,
+      cached: true,
+    };
+  }
+
+  const cfg = getChatRouterConfig();
+  const timeoutMs = Number(trim(process.env.QFLUSH_HEALTH_PROBE_TIMEOUT_MS) || '1200');
+  const results: Record<string, ChatBackendProbeResult> = {};
+
+  results.localCompletion = await probeCandidates(
+    'local-completion',
+    'LOCAL_LLM_URL',
+    cfg.localCompletionUrl
+      ? buildProbeUrls(
+          cfg.localCompletionHealthUrl || cfg.localCompletionUrl,
+          cfg.localCompletionHealthUrl ? [] : ['/health']
+        )
+      : [],
+    {},
+    timeoutMs
+  );
+
+  results.qflushUpstream = await probeCandidates(
+    'qflush-upstream',
+    'QFLUSH_CHAT_UPSTREAM',
+    cfg.qflushChatUpstream
+      ? buildProbeUrls(
+          cfg.qflushChatUpstreamHealthUrl || cfg.qflushChatUpstream,
+          cfg.qflushChatUpstreamHealthUrl ? [] : ['/health', '/v1/health', '/status']
+        )
+      : [],
+    {},
+    timeoutMs
+  );
+
+  results.openaiCompatible = await probeCandidates(
+    'openai-compatible',
+    'LLAMA_BASE/LLM_URL/A11_SERVER_URL',
+    cfg.openaiCompatibleUrl
+      ? buildProbeUrls(
+          cfg.openaiCompatibleHealthUrl || cfg.openaiCompatibleUrl,
+          cfg.openaiCompatibleHealthUrl ? [] : ['/health', '/v1/health', '/status']
+        )
+      : [],
+    {},
+    timeoutMs
+  );
+
+  results.ollama = await probeCandidates(
+    'ollama',
+    cfg.ollamaConfigured ? 'OLLAMA_URL' : 'OLLAMA_URL(default)',
+    cfg.ollamaConfigured && cfg.ollamaUrl
+      ? buildProbeUrls(
+          cfg.ollamaHealthUrl || cfg.ollamaUrl,
+          cfg.ollamaHealthUrl ? [] : ['/api/tags']
+        )
+      : [],
+    {},
+    timeoutMs
+  );
+
+  if (cfg.openaiConfigured && shouldProbeOpenAi()) {
+    const headers: Record<string, string> = {};
+    if (cfg.openaiApiKey) headers.Authorization = `Bearer ${cfg.openaiApiKey}`;
+    results.openai = await probeCandidates(
+      'openai',
+      'OPENAI_BASE_URL',
+      buildProbeUrls(
+        cfg.openaiHealthUrl || cfg.openaiUrl,
+        cfg.openaiHealthUrl ? [] : ['/models']
+      ),
+      headers,
+      timeoutMs
+    );
+  } else {
+    results.openai = {
+      backend: 'openai',
+      source: 'OPENAI_BASE_URL',
+      configured: cfg.openaiConfigured,
+      enabled: !!cfg.openaiConfigured && shouldProbeOpenAi(),
+      ok: null,
+      status: null,
+      url: cfg.openaiConfigured ? cfg.openaiUrl : null,
+      durationMs: null,
+      error: cfg.openaiConfigured ? 'probe_disabled' : null,
+    };
+  }
+
+  const report: ChatRouterProbeReport = {
+    enabled: true,
+    live: true,
+    cached: false,
+    timestamp: new Date(now).toISOString(),
+    ttlMs,
+    results,
+  };
+  probeCache = { value: report, updatedAt: now };
+  return report;
 }

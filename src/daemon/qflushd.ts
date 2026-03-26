@@ -8,11 +8,15 @@ import { safeWriteFileSync, safeAppendFileSync, ensureParentDir } from '../utils
 import { fileURLToPath } from 'url';
 import fetch from '../utils/fetch.js';
 import { QFLUSH_MODE } from '../core/qflush-mode.js';
-import { buildChatRouterStatus, callChatBackend } from '../core/chat-router.js';
+import { buildChatRouterStatus, callChatBackend, probeConfiguredChatBackends } from '../core/chat-router.js';
 
 let _server: http.Server | null = null;
 let _state: { safeMode: boolean; mode?: string } = { safeMode: false };
 const BUILT_IN_FLOWS = ['a11.chat.v1', 'a11.memory.summary.v1', 'web_fetch', 'fs.search'];
+const DEFAULT_PUBLIC_FLOWS = ['a11.chat.v1', 'a11.memory.summary.v1'];
+const DEFAULT_ADMIN_FLOWS = ['web_fetch', 'fs.search'];
+const DEFAULT_INTERNAL_FLOWS: string[] = [];
+type FlowExposure = 'public' | 'admin' | 'internal' | 'unknown';
 
 function getConfiguredToken(): string {
   return String(
@@ -72,27 +76,71 @@ function parseCsvList(raw: unknown): string[] {
     .filter(Boolean);
 }
 
-function getAllowedRunFlows(): string[] {
-  const configured = parseCsvList(
+function uniqueFlows(items: string[]): string[] {
+  return Array.from(new Set(items.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function getFlowPolicy() {
+  const legacyPublic = uniqueFlows(parseCsvList(
     process.env.QFLUSH_RUN_ALLOWLIST ||
     process.env.QFLUSH_ALLOWED_FLOWS ||
     ''
-  );
-  return configured.length > 0 ? configured : [...BUILT_IN_FLOWS];
+  ));
+  if (legacyPublic.length > 0) {
+    return {
+      mode: 'legacy-run-allowlist',
+      public: legacyPublic,
+      admin: uniqueFlows(DEFAULT_ADMIN_FLOWS.filter((flow) => !legacyPublic.includes(flow))),
+      internal: [...DEFAULT_INTERNAL_FLOWS],
+    };
+  }
+
+  const publicFlows = uniqueFlows(parseCsvList(process.env.QFLUSH_PUBLIC_FLOWS || '').concat(DEFAULT_PUBLIC_FLOWS));
+  const adminFlows = uniqueFlows(parseCsvList(process.env.QFLUSH_ADMIN_FLOWS || '').concat(DEFAULT_ADMIN_FLOWS));
+  const internalFlows = uniqueFlows(parseCsvList(process.env.QFLUSH_INTERNAL_FLOWS || '').concat(DEFAULT_INTERNAL_FLOWS));
+
+  return {
+    mode: 'exposure-policy',
+    public: publicFlows.filter((flow) => !internalFlows.includes(flow)),
+    admin: adminFlows.filter((flow) => !publicFlows.includes(flow) && !internalFlows.includes(flow)),
+    internal: internalFlows,
+  };
 }
 
-function isAllowedRunFlow(flow: string): boolean {
-  return getAllowedRunFlows().includes(String(flow || '').trim());
+function getFlowExposure(flow: string): FlowExposure {
+  const normalized = String(flow || '').trim();
+  const policy = getFlowPolicy();
+  if (policy.public.includes(normalized)) return 'public';
+  if (policy.admin.includes(normalized)) return 'admin';
+  if (policy.internal.includes(normalized)) return 'internal';
+  return BUILT_IN_FLOWS.includes(normalized) ? 'internal' : 'unknown';
 }
 
-function buildHealthReport() {
+function isAllowedPublicRunFlow(flow: string): boolean {
+  return getFlowExposure(flow) === 'public';
+}
+
+function isAllowedAdminRunFlow(flow: string): boolean {
+  const exposure = getFlowExposure(flow);
+  return exposure === 'public' || exposure === 'admin';
+}
+
+function shouldProbeUpstreams(query: Record<string, any> = {}) {
+  const probe = String(query.probe || '').trim().toLowerCase();
+  if (probe === '1' || probe === 'true' || probe === 'yes') return true;
+  return process.env.QFLUSH_HEALTH_PROBE_UPSTREAMS === '1';
+}
+
+async function buildHealthReport(options: { probeUpstreams?: boolean } = {}) {
   const stateDir = path.join(process.cwd(), '.qflush');
   const logsDir = path.join(stateDir, 'logs');
   const romeIndexPath = path.join(stateDir, 'rome-index.json');
   const checksumsPath = path.join(stateDir, 'checksums.json');
   const authRequired = shouldProtectServiceRoutes();
   const tokenConfigured = !!getConfiguredToken();
-  const allowedRunFlows = getAllowedRunFlows();
+  const flowPolicy = getFlowPolicy();
+  const probeUpstreams = !!options.probeUpstreams;
+  const upstreams = await probeConfiguredChatBackends({ enable: probeUpstreams, force: probeUpstreams });
 
   const checks = {
     stateDir: {
@@ -117,9 +165,11 @@ function buildHealthReport() {
       tokenConfigured,
     },
     flowPolicy: {
-      ok: allowedRunFlows.length > 0,
-      allowedRunFlows,
-      mode: process.env.QFLUSH_RUN_ALLOWLIST || process.env.QFLUSH_ALLOWED_FLOWS ? 'env' : 'builtin-default',
+      ok: flowPolicy.public.length > 0,
+      mode: flowPolicy.mode,
+      public: flowPolicy.public,
+      admin: flowPolicy.admin,
+      internal: flowPolicy.internal,
     },
   };
 
@@ -127,15 +177,22 @@ function buildHealthReport() {
   if (!checks.romeIndexCache.ok) warnings.push('rome_index_cache_missing');
   if (!checks.checksumStore.ok) warnings.push('checksum_store_missing');
   if (!checks.authConfiguration.ok) warnings.push('auth_required_but_token_missing');
+  if (upstreams.enabled) {
+    for (const [name, result] of Object.entries(upstreams.results || {})) {
+      if (result.enabled && result.configured && result.ok === false) warnings.push(`upstream_probe_failed:${name}`);
+    }
+  }
 
   return {
     ready:
       checks.stateDir.ok &&
       checks.logsDir.ok &&
       checks.authConfiguration.ok &&
-      checks.flowPolicy.ok,
+      checks.flowPolicy.ok &&
+      (!upstreams.enabled || Object.values(upstreams.results || {}).every((result) => !result.enabled || result.ok !== false)),
     warnings,
     checks,
+    upstreams,
   };
 }
 
@@ -213,7 +270,7 @@ async function runFlow(flow: string, payload: any = {}) {
   }
 }
 
-function buildStatusPayload(port: number | string) {
+async function buildStatusPayload(port: number | string, options: { probeUpstreams?: boolean } = {}) {
   const chatRouter = buildChatRouterStatus();
   const explicitUpstreamConfigured =
     chatRouter.configuredBackends.localCompletion.configured ||
@@ -221,8 +278,8 @@ function buildStatusPayload(port: number | string) {
     chatRouter.configuredBackends.openaiCompatible.configured ||
     chatRouter.configuredBackends.openai.configured;
 
-  const health = buildHealthReport();
-  const allowedRunFlows = getAllowedRunFlows();
+  const health = await buildHealthReport(options);
+  const flowPolicy = getFlowPolicy();
 
   return {
     ok: true,
@@ -234,13 +291,20 @@ function buildStatusPayload(port: number | string) {
     },
     flows: {
       available: [...BUILT_IN_FLOWS],
-      allowedRun: allowedRunFlows,
+      allowedRun: flowPolicy.public,
+      publicRun: flowPolicy.public,
+      allowedAdminRun: [...flowPolicy.public, ...flowPolicy.admin],
+      adminRun: flowPolicy.admin,
+      internal: flowPolicy.internal,
+      exposure: Object.fromEntries(BUILT_IN_FLOWS.map((flow) => [flow, getFlowExposure(flow)])),
+      policyMode: flowPolicy.mode,
       chatDefault: 'a11.chat.v1',
       memorySummaryDefault: 'a11.memory.summary.v1',
     },
     auth: {
       protectedRoutes: shouldProtectServiceRoutes(),
       tokenConfigured: !!getConfiguredToken(),
+      adminRoutesRequireToken: true,
     },
     chat: {
       upstreamConfigured: explicitUpstreamConfigured,
@@ -302,6 +366,7 @@ export async function startServer(port?: number) {
             pathname: requestUrl.pathname,
             query: Object.fromEntries(requestUrl.searchParams.entries()),
           };
+          const liveProbe = shouldProbeUpstreams(parsed.query);
           const method = (req.method || 'GET').toUpperCase();
           // collect body
           let body = '';
@@ -325,12 +390,14 @@ export async function startServer(port?: number) {
                   sendJson(res, 400, { error: 'invalid_messages' });
                   return;
                 }
-                if (!isAllowedRunFlow('a11.chat.v1')) {
+                if (!isAllowedPublicRunFlow('a11.chat.v1')) {
                   sendJson(res, 403, {
                     ok: false,
                     error: 'flow_not_allowed',
+                    scope: 'public',
+                    reason: 'public_flow_not_allowed',
                     flow: 'a11.chat.v1',
-                    allowedRun: getAllowedRunFlows(),
+                    publicRun: getFlowPolicy().public,
                   });
                   return;
                 }
@@ -382,12 +449,14 @@ export async function startServer(port?: number) {
                   sendJson(res, 400, { ok: false, error: 'missing_flow' });
                   return;
                 }
-                if (!isAllowedRunFlow(flow)) {
+                if (!isAllowedPublicRunFlow(flow)) {
                   sendJson(res, 403, {
                     ok: false,
                     error: 'flow_not_allowed',
+                    scope: 'public',
+                    reason: 'public_flow_not_allowed',
                     flow,
-                    allowedRun: getAllowedRunFlows(),
+                    publicRun: getFlowPolicy().public,
                   });
                   return;
                 }
@@ -397,6 +466,40 @@ export async function startServer(port?: number) {
                 return;
               } catch (e) {
                 console.warn('[qflushd] run flow error:', String(e));
+                sendJson(res, 500, { ok: false, error: 'internal_error', message: String(e) });
+                return;
+              }
+            }
+
+            if (method === 'POST' && (parsed.pathname === '/admin/run' || parsed.pathname === '/api/admin/run')) {
+              try {
+                if (!ensureAuthorized(req, res)) {
+                  return;
+                }
+                const payload = body ? JSON.parse(body) : {};
+                const flow = String(payload?.flow || '').trim();
+                if (!flow) {
+                  sendJson(res, 400, { ok: false, error: 'missing_flow' });
+                  return;
+                }
+                if (!isAllowedAdminRunFlow(flow)) {
+                  sendJson(res, 403, {
+                    ok: false,
+                    error: 'flow_not_allowed',
+                    scope: 'admin',
+                    reason: 'admin_flow_not_allowed',
+                    flow,
+                    adminRun: getFlowPolicy().admin,
+                    publicRun: getFlowPolicy().public,
+                  });
+                  return;
+                }
+
+                const result: any = await runFlow(flow, payload?.payload || {});
+                sendJson(res, result?.ok === false ? Number(result?.status || 400) : 200, result);
+                return;
+              } catch (e) {
+                console.warn('[qflushd] admin run flow error:', String(e));
                 sendJson(res, 500, { ok: false, error: 'internal_error', message: String(e) });
                 return;
               }
@@ -437,7 +540,7 @@ export async function startServer(port?: number) {
 
             // root / handler — health check for Railway and other PaaS probes
             if (method === 'GET' && (parsed.pathname === '/' || parsed.pathname === '')) {
-              sendJson(res, 200, buildStatusPayload(p));
+              sendJson(res, 200, await buildStatusPayload(p, { probeUpstreams: liveProbe }));
               return;
             }
 
@@ -467,7 +570,7 @@ export async function startServer(port?: number) {
                 }
               }
               if (parsed.pathname === '/health' || parsed.pathname === '/status' || parsed.pathname === '/api/status') {
-              sendJson(res, 200, buildStatusPayload(p));
+              sendJson(res, 200, await buildStatusPayload(p, { probeUpstreams: liveProbe }));
               return;
             }
 

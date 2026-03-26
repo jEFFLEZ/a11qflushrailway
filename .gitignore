@@ -1,6 +1,10 @@
 # Minimal ignores for Node/JS project
 node_modules/
 dist/
+.qflush/
+.funesterie/
+coverage/
+*.log
 .vscode/
 .idea/
 .vs/

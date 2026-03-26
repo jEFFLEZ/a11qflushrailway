@@ -2,15 +2,61 @@
 // This implementation is minimal and intended to satisfy legacy tests that expect an HTTP control server.
 
 import * as http from 'http';
-import * as url from 'url';
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeWriteFileSync, safeAppendFileSync, ensureParentDir } from '../utils/safe-fs.js';
 import { fileURLToPath } from 'url';
 import fetch from '../utils/fetch.js';
+import { QFLUSH_MODE } from '../core/qflush-mode.js';
 
 let _server: http.Server | null = null;
 let _state: { safeMode: boolean; mode?: string } = { safeMode: false };
+
+function getConfiguredToken(): string {
+  return String(
+    process.env.QFLUSH_TOKEN ||
+    process.env.NPZ_ADMIN_TOKEN ||
+    ''
+  ).trim();
+}
+
+function shouldProtectServiceRoutes(): boolean {
+  if (process.env.QFLUSH_REQUIRE_AUTH === '1') return true;
+  return !!getConfiguredToken();
+}
+
+function readProvidedToken(req: http.IncomingMessage): string {
+  const bearer = String(req.headers.authorization || '').trim();
+  if (bearer.toLowerCase().startsWith('bearer ')) {
+    return bearer.slice(7).trim();
+  }
+  return String(
+    req.headers['x-qflush-token'] ||
+    req.headers['x-admin-token'] ||
+    ''
+  ).trim();
+}
+
+function isAuthorized(req: http.IncomingMessage): boolean {
+  const expected = getConfiguredToken();
+  if (!expected) return false;
+  const provided = readProvidedToken(req);
+  return !!provided && provided === expected;
+}
+
+function ensureAuthorized(req: http.IncomingMessage, res: http.ServerResponse, options: { optional?: boolean } = {}) {
+  const mustProtect = shouldProtectServiceRoutes();
+  if (!mustProtect && options.optional) return true;
+  if (!mustProtect) {
+    sendJson(res, 503, { ok: false, error: 'missing_token_configuration' });
+    return false;
+  }
+  if (!isAuthorized(req)) {
+    sendJson(res, 401, { ok: false, error: 'unauthorized' });
+    return false;
+  }
+  return true;
+}
 
 function extractLatestUserMessage(messages: any[]): string {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -163,13 +209,31 @@ async function runFlow(flow: string, payload: any = {}) {
   }
 }
 
-function requireToken(req: http.IncomingMessage): boolean {
-  try {
-    const expected = process.env.QFLUSH_TOKEN;
-    if (!expected) return false;
-    const v = (req.headers['x-qflush-token'] || req.headers['X-QFLUSH-TOKEN']) as string | undefined;
-    return !!v && String(v) === String(expected);
-  } catch (e) { return false; }
+function buildStatusPayload(port: number | string) {
+  const upstream = getQflushChatUpstream();
+  return {
+    ok: true,
+    service: 'qflush',
+    mode: QFLUSH_MODE,
+    state: {
+      safeMode: !!_state.safeMode,
+      mode: _state.mode || 'normal',
+    },
+    flows: {
+      available: ['a11.chat.v1', 'a11.memory.summary.v1', 'web_fetch', 'fs.search'],
+      chatDefault: 'a11.chat.v1',
+      memorySummaryDefault: 'a11.memory.summary.v1',
+    },
+    auth: {
+      protectedRoutes: shouldProtectServiceRoutes(),
+      tokenConfigured: !!getConfiguredToken(),
+    },
+    chat: {
+      upstreamConfigured: !!upstream,
+      upstreamMode: upstream ? 'proxy' : 'echo-fallback',
+    },
+    port: Number(port),
+  };
 }
 
 function writeSafeModes(mode: string) {
@@ -216,7 +280,11 @@ export async function startServer(port?: number) {
       const p = port || (process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : 43421);
       const srv = http.createServer(async (req, res) => {
         try {
-          const parsed = url.parse(req.url || '', true);
+          const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
+          const parsed = {
+            pathname: requestUrl.pathname,
+            query: Object.fromEntries(requestUrl.searchParams.entries()),
+          };
           const method = (req.method || 'GET').toUpperCase();
           // collect body
           let body = '';
@@ -231,20 +299,26 @@ export async function startServer(port?: number) {
               )
             ) {
               try {
+                if (!ensureAuthorized(req, res, { optional: true })) {
+                  return;
+                }
                 const payload = body ? JSON.parse(body) : {};
                 const messages = Array.isArray(payload?.messages) ? payload.messages : null;
                 if (!messages) {
                   sendJson(res, 400, { error: 'invalid_messages' });
                   return;
                 }
-
-                const prompt = extractLatestUserMessage(messages);
-                const output = prompt ? `Echo: ${prompt}` : 'Echo:';
+                const flowResult = await runFlow('a11.chat.v1', payload) as any;
+                if (flowResult?.ok === false) {
+                  sendJson(res, 502, { ok: false, error: flowResult.error || 'chat_flow_failed', flow: 'a11.chat.v1' });
+                  return;
+                }
+                const output = String(flowResult?.output || '').trim();
                 sendJson(res, 200, {
                   id: `chatcmpl-${Date.now()}`,
                   object: 'chat.completion',
                   created: Math.floor(Date.now() / 1000),
-                  model: payload?.model || 'qflush-echo',
+                  model: payload?.model || process.env.QFLUSH_CHAT_MODEL || 'qflush',
                   choices: [
                     {
                       index: 0,
@@ -266,6 +340,9 @@ export async function startServer(port?: number) {
 
             if (method === 'POST' && parsed.pathname === '/run') {
               try {
+                if (!ensureAuthorized(req, res, { optional: true })) {
+                  return;
+                }
                 const payload = body ? JSON.parse(body) : {};
                 const flow = String(payload?.flow || '').trim();
                 if (!flow) {
@@ -285,8 +362,7 @@ export async function startServer(port?: number) {
 
             // Token protected endpoints
             if (method === 'POST' && parsed.pathname === '/npz/sleep') {
-              if (!requireToken(req)) {
-                sendJson(res, 401, { success: false, error: 'unauthorized' });
+              if (!ensureAuthorized(req, res)) {
                 return;
               }
               _state.safeMode = true;
@@ -296,8 +372,7 @@ export async function startServer(port?: number) {
               return;
             }
             if (method === 'POST' && parsed.pathname === '/npz/wake') {
-              if (!requireToken(req)) {
-                sendJson(res, 401, { success: false, error: 'unauthorized' });
+              if (!ensureAuthorized(req, res)) {
                 return;
               }
               _state.safeMode = false;
@@ -307,8 +382,7 @@ export async function startServer(port?: number) {
               return;
             }
             if (method === 'POST' && parsed.pathname === '/npz/joker-wipe') {
-              if (!requireToken(req)) {
-                sendJson(res, 401, { success: false, error: 'unauthorized' });
+              if (!ensureAuthorized(req, res)) {
                 return;
               }
               // pretend to wipe but in test mode skip exit
@@ -321,7 +395,7 @@ export async function startServer(port?: number) {
 
             // root / handler — health check for Railway and other PaaS probes
             if (method === 'GET' && (parsed.pathname === '/' || parsed.pathname === '')) {
-              sendJson(res, 200, { ok: true, service: 'qflush' });
+              sendJson(res, 200, buildStatusPayload(p));
               return;
             }
 
@@ -350,8 +424,8 @@ export async function startServer(port?: number) {
                   return;
                 }
               }
-              if (parsed.pathname === '/health' || parsed.pathname === '/status') {
-              sendJson(res, 200, { ok: true });
+              if (parsed.pathname === '/health' || parsed.pathname === '/status' || parsed.pathname === '/api/status') {
+              sendJson(res, 200, buildStatusPayload(p));
               return;
             }
 

@@ -8,6 +8,7 @@ import { safeWriteFileSync, safeAppendFileSync, ensureParentDir } from '../utils
 import { fileURLToPath } from 'url';
 import fetch from '../utils/fetch.js';
 import { QFLUSH_MODE } from '../core/qflush-mode.js';
+import { buildChatRouterStatus, callChatBackend } from '../core/chat-router.js';
 
 let _server: http.Server | null = null;
 let _state: { safeMode: boolean; mode?: string } = { safeMode: false };
@@ -58,81 +59,9 @@ function ensureAuthorized(req: http.IncomingMessage, res: http.ServerResponse, o
   return true;
 }
 
-function extractLatestUserMessage(messages: any[]): string {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const msg = messages[i];
-    if (!msg || msg.role !== 'user') continue;
-    if (typeof msg.content === 'string') return msg.content;
-    if (Array.isArray(msg.content)) {
-      const text = msg.content
-        .map((part: any) => (part && typeof part.text === 'string' ? part.text : ''))
-        .filter(Boolean)
-        .join('\n');
-      if (text) return text;
-    }
-  }
-  return '';
-}
-
 function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(payload));
-}
-
-function getLatestUserMessage(messages: any[]): string {
-  return extractLatestUserMessage(messages);
-}
-
-function getQflushChatUpstream(): string {
-  return String(
-    process.env.QFLUSH_CHAT_UPSTREAM ||
-    process.env.OPENAI_BASE_URL ||
-    process.env.A11_SERVER_URL ||
-    ''
-  ).trim();
-}
-
-async function callChatUpstream(payload: any) {
-  const base = getQflushChatUpstream().replace(/\/$/, '');
-  if (!base) {
-    return {
-      ok: true,
-      output: `Echo: ${getLatestUserMessage(Array.isArray(payload?.messages) ? payload.messages : []) || String(payload?.prompt || '')}`
-    };
-  }
-
-  const url = `${base}/v1/chat/completions`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (process.env.OPENAI_API_KEY) headers.Authorization = `Bearer ${process.env.OPENAI_API_KEY}`;
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: payload?.model || process.env.QFLUSH_CHAT_MODEL || 'gpt-4o-mini',
-      messages: Array.isArray(payload?.messages) ? payload.messages : [
-        { role: 'user', content: String(payload?.prompt || '') }
-      ],
-      stream: false
-    })
-  } as any);
-
-  const text = await res.text();
-  let data: any = null;
-  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-  if (!res.ok) {
-    throw new Error(`chat upstream error ${res.status}: ${text}`);
-  }
-
-  return {
-    ok: true,
-    output:
-      data?.choices?.[0]?.message?.content ||
-      data?.output ||
-      data?.content ||
-      data?.response ||
-      ''
-  };
 }
 
 function buildMemorySummary(payload: any) {
@@ -162,7 +91,7 @@ async function runFlow(flow: string, payload: any = {}) {
   const normalizedFlow = String(flow || '').trim();
   switch (normalizedFlow) {
     case 'a11.chat.v1':
-      return await callChatUpstream(payload);
+      return await callChatBackend(payload, payload?.provider);
     case 'a11.memory.summary.v1':
       return buildMemorySummary(payload);
     case 'web_fetch': {
@@ -210,7 +139,13 @@ async function runFlow(flow: string, payload: any = {}) {
 }
 
 function buildStatusPayload(port: number | string) {
-  const upstream = getQflushChatUpstream();
+  const chatRouter = buildChatRouterStatus();
+  const explicitUpstreamConfigured =
+    chatRouter.configuredBackends.localCompletion.configured ||
+    chatRouter.configuredBackends.qflushUpstream.configured ||
+    chatRouter.configuredBackends.openaiCompatible.configured ||
+    chatRouter.configuredBackends.openai.configured;
+
   return {
     ok: true,
     service: 'qflush',
@@ -229,8 +164,9 @@ function buildStatusPayload(port: number | string) {
       tokenConfigured: !!getConfiguredToken(),
     },
     chat: {
-      upstreamConfigured: !!upstream,
-      upstreamMode: upstream ? 'proxy' : 'echo-fallback',
+      upstreamConfigured: explicitUpstreamConfigured,
+      upstreamMode: explicitUpstreamConfigured ? 'proxy' : 'echo-fallback',
+      router: chatRouter,
     },
     port: Number(port),
   };
@@ -310,7 +246,14 @@ export async function startServer(port?: number) {
                 }
                 const flowResult = await runFlow('a11.chat.v1', payload) as any;
                 if (flowResult?.ok === false) {
-                  sendJson(res, 502, { ok: false, error: flowResult.error || 'chat_flow_failed', flow: 'a11.chat.v1' });
+                  sendJson(res, Number(flowResult?.status || 502), {
+                    ok: false,
+                    error: flowResult.error || 'chat_flow_failed',
+                    flow: 'a11.chat.v1',
+                    backend: flowResult?.backend,
+                    source: flowResult?.source,
+                    tried: flowResult?.tried || [],
+                  });
                   return;
                 }
                 const output = String(flowResult?.output || '').trim();
@@ -350,8 +293,8 @@ export async function startServer(port?: number) {
                   return;
                 }
 
-                const result = await runFlow(flow, payload?.payload || {});
-                sendJson(res, result?.ok === false ? 400 : 200, result);
+                const result: any = await runFlow(flow, payload?.payload || {});
+                sendJson(res, result?.ok === false ? Number(result?.status || 400) : 200, result);
                 return;
               } catch (e) {
                 console.warn('[qflushd] run flow error:', String(e));

@@ -16,6 +16,9 @@ const BUILT_IN_FLOWS = ['a11.chat.v1', 'a11.memory.summary.v1', 'web_fetch', 'fs
 const DEFAULT_PUBLIC_FLOWS = ['a11.chat.v1', 'a11.memory.summary.v1'];
 const DEFAULT_ADMIN_FLOWS = ['web_fetch', 'fs.search'];
 const DEFAULT_INTERNAL_FLOWS: string[] = [];
+const DEFAULT_QFLUSHD_PORT = 43421;
+const QFLUSH_STATE_DIR = path.join(process.cwd(), '.qflush');
+const QFLUSH_DAEMON_STATE_PATH = path.join(QFLUSH_STATE_DIR, 'daemon.json');
 type FlowExposure = 'public' | 'admin' | 'internal' | 'unknown';
 
 function getConfiguredToken(): string {
@@ -319,13 +322,43 @@ async function buildStatusPayload(port: number | string, options: { probeUpstrea
 
 function writeSafeModes(mode: string) {
   try {
-    const dir = path.join(process.cwd(), '.qflush');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const p = path.join(dir, 'safe-modes.json');
+    if (!fs.existsSync(QFLUSH_STATE_DIR)) fs.mkdirSync(QFLUSH_STATE_DIR, { recursive: true });
+    const p = path.join(QFLUSH_STATE_DIR, 'safe-modes.json');
     const obj = { mode, updatedAt: new Date().toISOString() };
     // use safe write
     safeWriteFileSync(p, JSON.stringify(obj, null, 2), 'utf8');
   } catch (e) { console.warn('[qflushd] writeSafeModes failed:', String(e)); }
+}
+
+function persistDaemonState(port: number) {
+  try {
+    if (!fs.existsSync(QFLUSH_STATE_DIR)) fs.mkdirSync(QFLUSH_STATE_DIR, { recursive: true });
+    safeWriteFileSync(
+      QFLUSH_DAEMON_STATE_PATH,
+      JSON.stringify(
+        {
+          pid: process.pid,
+          port,
+          startedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+  } catch (e) {
+    console.warn('[qflushd] persistDaemonState failed:', String(e));
+  }
+}
+
+function clearDaemonState() {
+  try {
+    if (fs.existsSync(QFLUSH_DAEMON_STATE_PATH)) {
+      fs.unlinkSync(QFLUSH_DAEMON_STATE_PATH);
+    }
+  } catch (e) {
+    console.warn('[qflushd] clearDaemonState failed:', String(e));
+  }
 }
 
 // new helper: compute flexible checksum for a workspace file path
@@ -355,10 +388,10 @@ export async function startServer(port?: number) {
   return new Promise((resolve, reject) => {
     try {
       if (_server) {
-        return resolve({ ok: true, port: (port || process.env.QFLUSHD_PORT || 4500) });
+        return resolve({ ok: true, port: (port || process.env.QFLUSHD_PORT || DEFAULT_QFLUSHD_PORT) });
       }
 
-      const p = port || (process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : 43421);
+      const p = port || (process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : DEFAULT_QFLUSHD_PORT);
       const srv = http.createServer(async (req, res) => {
         try {
           const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
@@ -760,6 +793,7 @@ export async function startServer(port?: number) {
 
       srv.listen(p, '0.0.0.0', () => {
         _server = srv;
+        persistDaemonState(p);
         try {
           const addr = srv.address();
           const addrStr = typeof addr === 'string' ? addr : `${(addr as any)?.address}:${(addr as any)?.port}`;
@@ -806,7 +840,10 @@ export async function stopServer() {
       if (!_server) return resolve({ ok: true, stopped: false });
       const s = _server;
       _server = null;
-      s.close(() => resolve({ ok: true, stopped: true }));
+      s.close(() => {
+        clearDaemonState();
+        resolve({ ok: true, stopped: true });
+      });
     } catch (e) {
       resolve({ ok: false, error: String(e) });
     }
@@ -819,7 +856,7 @@ export default { startServer, stopServer };
 const __filename = fileURLToPath(import.meta.url);
 const _argv1 = process.argv && process.argv[1] ? path.resolve(process.argv[1]) : '';
 if (_argv1 === __filename) {
-  const port = process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : 3000;
+  const port = process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : DEFAULT_QFLUSHD_PORT;
   console.warn(`[qflushd] starting with PORT=${process.env.PORT}, QFLUSHD_PORT=${process.env.QFLUSHD_PORT}, resolved to: ${port}`);
   (async () => {
     try {
@@ -831,3 +868,17 @@ if (_argv1 === __filename) {
     }
   })();
 }
+
+process.on('exit', () => {
+  clearDaemonState();
+});
+
+process.on('SIGINT', () => {
+  clearDaemonState();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  clearDaemonState();
+  process.exit(0);
+});

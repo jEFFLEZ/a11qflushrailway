@@ -5,10 +5,11 @@ import { runDetect } from "../commands/detect.js";
 import { runConfig } from "../commands/config.js";
 import { runPurge } from "../commands/purge.js";
 import { runKill } from "../commands/kill.js";
+import { runInspect } from "../commands/inspect.js";
 import { runStart } from "../commands/start.js";
 import { runExodia } from "../commands/exodia.js";
 
-const ORDER = ["detect", "config", "purge", "kill", "start", "exodia", "piccolo"];
+const ORDER = ["detect", "config", "inspect", "purge", "kill", "start", "exodia", "piccolo"];
 
 export type qflushOptions = {
   global?: Record<string, any>;
@@ -176,6 +177,9 @@ export async function executePipeline(pipeline: string[], options: qflushOptions
       }
       case "config":
         await runConfig(options);
+        break;
+      case "inspect":
+        await runInspect(options);
         break;
       case "purge":
         await runPurge(options);

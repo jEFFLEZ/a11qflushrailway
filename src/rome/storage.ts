@@ -1,7 +1,10 @@
 // ROME-TAG: 0x75DEC5
 
+import { createRequire } from 'module';
 import * as fs from 'fs';
 import * as path from 'path';
+
+const require = createRequire(import.meta.url);
 
 // Lightweight storage helper: prefer sqlite (better-sqlite3) if available,
 // otherwise fallback to a JSON file under .qflush/storage.json
@@ -30,7 +33,10 @@ try {
 } catch (e) {
   // fallback to JSON
   useSqlite = false;
-  console.warn('[storage] sqlite init failed', String(e));
+  const message = e instanceof Error ? e.message : String(e);
+  if (!message.includes("Cannot find module 'better-sqlite3'")) {
+    console.warn('[storage] sqlite init failed', message);
+  }
 }
 
 function writeJsonFile(obj: any) {

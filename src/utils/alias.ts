@@ -1,5 +1,11 @@
+import { createRequire } from 'module';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // avoid static import of './paths' to prevent TypeScript module resolution issues in some environments
 let resolvePaths: any = undefined;
@@ -43,7 +49,7 @@ export function importUtil(name: string): any {
 
   // prefer spyder local workspace copy when present
   try {
-    if (typeof resolvePaths === 'function') {
+    if (aliasMatch && typeof resolvePaths === 'function') {
       const paths = resolvePaths();
       const spy = paths && paths['spyder'];
       if (spy) {
@@ -64,7 +70,11 @@ export function importUtil(name: string): any {
           const resolved = require.resolve(localName, { paths: [spy] });
           const m = require(resolved);
           if (m) return (m && m.default) || m;
-        } catch (e) { warn('[alias] require.resolve from spyder failed', String(e)); }
+        } catch (e: any) {
+          if (e?.code !== 'MODULE_NOT_FOUND') {
+            warn('[alias] require.resolve from spyder failed', String(e));
+          }
+        }
       }
     }
   } catch (e) {

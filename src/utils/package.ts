@@ -1,8 +1,11 @@
 // ROME-TAG: 0xB044BC
 
+import { createRequire } from "module";
 import { join } from "path";
 import { existsSync } from "fs";
 import { readFileSync } from "fs";
+
+const require = createRequire(import.meta.url);
 
 export function resolvePackagePath(pkgName: string) {
   try {
@@ -19,7 +22,7 @@ export function resolvePackagePath(pkgName: string) {
     // If package uses conditional exports without a `require` target, Node may
     // throw ERR_PACKAGE_PATH_NOT_EXPORTED when resolving from CommonJS.
     // Fall back silently to the node_modules guess below to avoid noisy logs.
-    if (err && err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+    if (err && (err.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' || err.code === 'MODULE_NOT_FOUND')) {
       // silent fallback — we'll try the node_modules guess below
     } else {
       console.warn('[package] resolvePackagePath failed:', err && err.code ? `${err.code}: ${err.message}` : String(err));

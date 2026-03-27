@@ -15,6 +15,7 @@ Commands:
   purge        Clear caches, logs and sessions
   inspect      Show running services and ports
   config       Generate missing .env/config files
+  env          Manage env profiles (.qflush/env.profiles.json|yaml)
   secret import  Import secrets from a .env file into local encrypted store (Windows DPAPI)
 
 Options (examples):
@@ -27,6 +28,9 @@ Examples:
   qflush start --service rome --path D:/rome
   qflush start --service nezlephant --service freeland --fresh
   qflush config --service freeland
+  qflush env init
+  qflush env check dev
+  qflush env generate railway --out .env.generated
   qflush purge --fresh
 
 Scripts & helpers:

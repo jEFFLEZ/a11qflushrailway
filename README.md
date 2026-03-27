@@ -32,7 +32,41 @@ Comportements runtime & variables d'environnement importants
 - `QFLUSHD_PORT` : port du daemon (défaut 4500 ou 43421 selon scripts). Tests/CI attendent parfois `4500`.
 - `QFLUSH_ENABLE_REDIS` : contrôle l'utilisation de Redis (0 = in-memory fallback).
 - `QFLUSH_DISABLE_COPILOT` / `QFLUSH_TELEMETRY` : désactiver la passerelle copilot/telemetry en runtime.
+- `QFLUSH_LOG_FORMAT` : format des logs (`pretty`, `plain`, `json`) pour Railway, desktop ou CI.
+- `QFLUSH_LOG_NO_COLOR` : désactive les couleurs ANSI même en mode `pretty`.
+- `QFLUSH_LOG_TIMESTAMPS` : active ou coupe les timestamps dans les logs texte.
 - `VITEST` : si défini, `vitest.setup.js` tente de require et démarrer `dist/daemon/qflushd`.
+
+Profils d'environnement
+- qflush peut maintenant charger des profils depuis `.qflush/env.profiles.json`, `.qflush/env.profiles.yaml` ou `.qflush/env.profiles.yml`.
+- Commandes utiles :
+  - `qflush env init`
+  - `qflush env list`
+  - `qflush env show dev`
+  - `qflush env check railway`
+  - `qflush env generate railway --out .env.generated`
+- Format minimal :
+
+```json
+{
+  "profiles": {
+    "dev": {
+      "files": [".env", ".env.local"],
+      "vars": {
+        "QFLUSHD_PORT": "43421",
+        "QFLUSH_LOG_FORMAT": "pretty"
+      },
+      "required": ["QFLUSHD_PORT"]
+    },
+    "railway": {
+      "extends": "dev",
+      "vars": {
+        "QFLUSH_LOG_FORMAT": "json"
+      }
+    }
+  }
+}
+```
 
 SPYDER admin port
 - `QFLUSH_SPYDER_ADMIN_PORT` : override du port admin que SPYDER expose (valeur entière). Utile en CI ou pour éviter des conflits locaux.

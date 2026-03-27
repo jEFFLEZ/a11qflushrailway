@@ -5,6 +5,7 @@ dist/
 .funesterie/
 coverage/
 *.log
+spyder/.env
 .vscode/
 .idea/
 .vs/

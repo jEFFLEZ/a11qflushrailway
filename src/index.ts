@@ -53,6 +53,7 @@ import runNpzInspect from "./commands/npz-inspect.js";
 import runNpzScores from "./commands/npz-scores.js";
 import { runInspect } from "./commands/inspect.js";
 import { runLicense } from "./commands/license.js";
+import runEnv from "./commands/env.js";
 import runChecksum from "./commands/checksum.js";
 import runEngine from "./commands/engine.js";
 import runLogic from "./commands/logic.js";
@@ -156,6 +157,18 @@ if (isEntrypoint) {
   if (first === "doctor") {
     void runDoctor(argv.slice(1));
     process.exit(0);
+  }
+  if (first === "env") {
+    (async () => {
+      try {
+        const code = await runEnv(argv.slice(1));
+        process.exit(code ?? 0);
+      } catch (err) {
+        console.error("env command failed", err);
+        process.exit(1);
+      }
+    })();
+    cliHandled = true;
   }
   if (first === "daemon") {
     // Default to detached mode to avoid launching heavy in-process work (opens files, scanners).

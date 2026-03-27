@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs", "dotnet-sdk"]
+nixPkgs = ["nodejs"]
 
 [phases.install]
-cmds = ["npm ci --include=dev", "dotnet restore || true"]
+cmds = ["npm ci --include=dev"]
 
 [phases.build]
 cmds = ["npm run railway:build"]

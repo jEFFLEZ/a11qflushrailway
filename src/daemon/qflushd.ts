@@ -10,12 +10,21 @@ import fetch from '../utils/fetch.js';
 import { QFLUSH_MODE } from '../core/qflush-mode.js';
 import { buildChatRouterStatus, callChatBackend, probeConfiguredChatBackends } from '../core/chat-router.js';
 import { emitDiagnostic, emitEngineState, getConfig as getCopilotConfig, initCopilotBridge } from '../rome/copilot-bridge.js';
+import {
+  clearEphemeralMemory,
+  deleteEphemeralMemory,
+  getEphemeralMemory,
+  getEphemeralMemoryStatus,
+  listEphemeralMemory,
+  setEphemeralMemory,
+  touchEphemeralMemory,
+} from '../utils/ephemeral-memory.js';
 
 let _server: http.Server | null = null;
 let _state: { safeMode: boolean; mode?: string } = { safeMode: false };
-const BUILT_IN_FLOWS = ['a11.chat.v1', 'a11.memory.summary.v1', 'web_fetch', 'fs.search'];
+const BUILT_IN_FLOWS = ['a11.chat.v1', 'a11.memory.summary.v1', 'a11.memory.ephemeral.v1', 'web_fetch', 'fs.search'];
 const DEFAULT_PUBLIC_FLOWS = ['a11.chat.v1', 'a11.memory.summary.v1'];
-const DEFAULT_ADMIN_FLOWS = ['web_fetch', 'fs.search'];
+const DEFAULT_ADMIN_FLOWS = ['a11.memory.ephemeral.v1', 'web_fetch', 'fs.search'];
 const DEFAULT_INTERNAL_FLOWS: string[] = [];
 const DEFAULT_QFLUSHD_PORT = 43421;
 const QFLUSH_STATE_DIR = path.join(process.cwd(), '.qflush');
@@ -223,6 +232,60 @@ function buildMemorySummary(payload: any) {
   };
 }
 
+async function runEphemeralMemoryFlow(payload: any = {}) {
+  const op = String(payload?.op || payload?.action || 'get').trim().toLowerCase();
+  const common = {
+    key: payload?.key,
+    namespace: payload?.namespace,
+    scope: payload?.scope,
+  };
+
+  switch (op) {
+    case 'set':
+    case 'write':
+      return await setEphemeralMemory({
+        ...common,
+        value: payload?.value,
+        ttlSec: payload?.ttlSec ?? payload?.ttl ?? payload?.expiresInSec,
+        metadata: payload?.metadata,
+      });
+    case 'get':
+    case 'read':
+      return await getEphemeralMemory(common);
+    case 'list':
+      return await listEphemeralMemory({
+        namespace: payload?.namespace,
+        scope: payload?.scope,
+        prefix: payload?.prefix,
+        limit: payload?.limit,
+      });
+    case 'delete':
+    case 'remove':
+      return await deleteEphemeralMemory(common);
+    case 'clear':
+      return await clearEphemeralMemory({
+        namespace: payload?.namespace,
+        scope: payload?.scope,
+        prefix: payload?.prefix,
+      });
+    case 'touch':
+    case 'renew':
+      return await touchEphemeralMemory({
+        ...common,
+        ttlSec: payload?.ttlSec ?? payload?.ttl ?? payload?.expiresInSec,
+      });
+    case 'status':
+      return { ok: true, status: getEphemeralMemoryStatus() };
+    default:
+      return {
+        ok: false,
+        error: 'unknown_ephemeral_memory_op',
+        op,
+        allowed: ['set', 'get', 'list', 'delete', 'clear', 'touch', 'status'],
+      };
+  }
+}
+
 async function runFlow(flow: string, payload: any = {}) {
   const normalizedFlow = String(flow || '').trim();
   switch (normalizedFlow) {
@@ -230,6 +293,8 @@ async function runFlow(flow: string, payload: any = {}) {
       return await callChatBackend(payload, payload?.provider);
     case 'a11.memory.summary.v1':
       return buildMemorySummary(payload);
+    case 'a11.memory.ephemeral.v1':
+      return await runEphemeralMemoryFlow(payload);
     case 'web_fetch': {
       const targetUrl = String(payload?.url || '').trim();
       if (!targetUrl) return { ok: false, error: 'missing_url' };
@@ -309,6 +374,11 @@ async function buildStatusPayload(port: number | string, options: { probeUpstrea
       protectedRoutes: shouldProtectServiceRoutes(),
       tokenConfigured: !!getConfiguredToken(),
       adminRoutesRequireToken: true,
+    },
+    memory: {
+      summaryFlow: 'a11.memory.summary.v1',
+      ephemeralFlow: 'a11.memory.ephemeral.v1',
+      ephemeral: getEphemeralMemoryStatus(),
     },
     chat: {
       upstreamConfigured: explicitUpstreamConfigured,
@@ -550,6 +620,140 @@ export async function startServer(port?: number) {
                 sendJson(res, 500, { ok: false, error: 'internal_error', message: String(e) });
                 return;
               }
+            }
+
+            if (
+              parsed.pathname === '/memory/ephemeral/status'
+              || parsed.pathname === '/api/memory/ephemeral/status'
+            ) {
+              if (!ensureAuthorized(req, res)) {
+                return;
+              }
+              sendJson(res, 200, { ok: true, status: getEphemeralMemoryStatus() });
+              return;
+            }
+
+            if (
+              method === 'GET'
+              && (
+                parsed.pathname === '/memory/ephemeral/get'
+                || parsed.pathname === '/api/memory/ephemeral/get'
+              )
+            ) {
+              if (!ensureAuthorized(req, res)) {
+                return;
+              }
+              const result = await getEphemeralMemory({
+                key: parsed.query.key,
+                namespace: parsed.query.namespace,
+                scope: parsed.query.scope,
+              });
+              sendJson(res, 200, result);
+              return;
+            }
+
+            if (
+              method === 'GET'
+              && (
+                parsed.pathname === '/memory/ephemeral/list'
+                || parsed.pathname === '/api/memory/ephemeral/list'
+              )
+            ) {
+              if (!ensureAuthorized(req, res)) {
+                return;
+              }
+              const result = await listEphemeralMemory({
+                namespace: String(parsed.query.namespace || '').trim() || undefined,
+                scope: String(parsed.query.scope || '').trim() || undefined,
+                prefix: String(parsed.query.prefix || '').trim() || undefined,
+                limit: parsed.query.limit ? Number(parsed.query.limit) : undefined,
+              });
+              sendJson(res, 200, result);
+              return;
+            }
+
+            if (
+              method === 'POST'
+              && (
+                parsed.pathname === '/memory/ephemeral/set'
+                || parsed.pathname === '/api/memory/ephemeral/set'
+              )
+            ) {
+              if (!ensureAuthorized(req, res)) {
+                return;
+              }
+              const payload = body ? JSON.parse(body) : {};
+              const result = await setEphemeralMemory({
+                key: payload?.key,
+                namespace: payload?.namespace,
+                scope: payload?.scope,
+                value: payload?.value,
+                metadata: payload?.metadata,
+                ttlSec: payload?.ttlSec ?? payload?.ttl ?? payload?.expiresInSec,
+              });
+              sendJson(res, 200, result);
+              return;
+            }
+
+            if (
+              method === 'POST'
+              && (
+                parsed.pathname === '/memory/ephemeral/touch'
+                || parsed.pathname === '/api/memory/ephemeral/touch'
+              )
+            ) {
+              if (!ensureAuthorized(req, res)) {
+                return;
+              }
+              const payload = body ? JSON.parse(body) : {};
+              const result = await touchEphemeralMemory({
+                key: payload?.key,
+                namespace: payload?.namespace,
+                scope: payload?.scope,
+                ttlSec: payload?.ttlSec ?? payload?.ttl ?? payload?.expiresInSec,
+              });
+              sendJson(res, 200, result);
+              return;
+            }
+
+            if (
+              method === 'POST'
+              && (
+                parsed.pathname === '/memory/ephemeral/delete'
+                || parsed.pathname === '/api/memory/ephemeral/delete'
+              )
+            ) {
+              if (!ensureAuthorized(req, res)) {
+                return;
+              }
+              const payload = body ? JSON.parse(body) : {};
+              const result = await deleteEphemeralMemory({
+                key: payload?.key,
+                namespace: payload?.namespace,
+                scope: payload?.scope,
+              });
+              sendJson(res, 200, result);
+              return;
+            }
+
+            if (
+              (method === 'DELETE' || method === 'POST')
+              && (
+                parsed.pathname === '/memory/ephemeral/clear'
+                || parsed.pathname === '/api/memory/ephemeral/clear'
+              )
+            ) {
+              if (!ensureAuthorized(req, res)) {
+                return;
+              }
+              const payload = body ? JSON.parse(body) : {};
+              const result = await clearEphemeralMemory({
+                namespace: String(payload?.namespace || parsed.query.namespace || '').trim() || undefined,
+                scope: String(payload?.scope || parsed.query.scope || '').trim() || undefined,
+                prefix: String(payload?.prefix || parsed.query.prefix || '').trim() || undefined,
+              });
+              sendJson(res, 200, result);
+              return;
             }
 
             // Token protected endpoints

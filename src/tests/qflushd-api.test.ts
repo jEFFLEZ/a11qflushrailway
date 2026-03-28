@@ -3,6 +3,7 @@ import net from 'node:net';
 import * as http from 'node:http';
 import fetch from '../utils/fetch.js';
 import { startServer, stopServer } from '../daemon/qflushd.js';
+import { __resetEphemeralMemoryFallbackStore } from '../utils/ephemeral-memory.js';
 
 function restoreEnv(name: string, value: string | undefined) {
   if (typeof value === 'undefined') {
@@ -35,6 +36,7 @@ beforeAll(async () => {
   process.env.QFLUSH_REQUIRE_AUTH = '1';
   process.env.QFLUSH_CHAT_UPSTREAM = '';
   process.env.QFLUSH_RUN_ALLOWLIST = 'a11.chat.v1,a11.memory.summary.v1';
+  process.env.QFLUSH_DISABLE_REDIS = '1';
   port = await getFreePort();
   await startServer(port);
 });
@@ -48,6 +50,14 @@ afterAll(async () => {
 });
 
 describe('qflush daemon API', () => {
+  it('GET /status exposes ephemeral memory status', async () => {
+    const response = await fetch(`${baseUrl()}/status`);
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.memory?.ephemeralFlow).toBe('a11.memory.ephemeral.v1');
+    expect(body.memory?.ephemeral?.enabled).toBe(true);
+  });
+
   it('GET /status returns structured runtime status', async () => {
     const response = await fetch(`${baseUrl()}/status`);
     expect(response.status).toBe(200);
@@ -137,6 +147,94 @@ describe('qflush daemon API', () => {
     const body = await response.json() as any;
     expect(body.ok).toBe(true);
     expect(Array.isArray(body.items)).toBe(true);
+  });
+
+  it('POST /api/admin/run can manage ephemeral memory with TTL', async () => {
+    __resetEphemeralMemoryFallbackStore();
+
+    const setResponse = await fetch(`${baseUrl()}/api/admin/run`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-qflush-token': 'test-token',
+      },
+      body: JSON.stringify({
+        flow: 'a11.memory.ephemeral.v1',
+        payload: {
+          op: 'set',
+          namespace: 'tests',
+          scope: 'suite',
+          key: 'hello',
+          value: { text: 'bonjour' },
+          ttlSec: 120,
+        },
+      }),
+    } as any);
+    expect(setResponse.status).toBe(200);
+    const setBody = await setResponse.json() as any;
+    expect(setBody.ok).toBe(true);
+    expect(setBody.item?.key).toBe('hello');
+
+    const getResponse = await fetch(`${baseUrl()}/api/admin/run`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-qflush-token': 'test-token',
+      },
+      body: JSON.stringify({
+        flow: 'a11.memory.ephemeral.v1',
+        payload: {
+          op: 'get',
+          namespace: 'tests',
+          scope: 'suite',
+          key: 'hello',
+        },
+      }),
+    } as any);
+    expect(getResponse.status).toBe(200);
+    const getBody = await getResponse.json() as any;
+    expect(getBody.found).toBe(true);
+    expect(getBody.item?.value?.text).toBe('bonjour');
+  });
+
+  it('admin ephemeral memory endpoints work with auth', async () => {
+    __resetEphemeralMemoryFallbackStore();
+
+    const setResponse = await fetch(`${baseUrl()}/api/memory/ephemeral/set`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-qflush-token': 'test-token',
+      },
+      body: JSON.stringify({
+        namespace: 'tests',
+        scope: 'http',
+        key: 'alpha',
+        value: 'beta',
+        ttlSec: 90,
+      }),
+    } as any);
+    expect(setResponse.status).toBe(200);
+
+    const listResponse = await fetch(`${baseUrl()}/api/memory/ephemeral/list?namespace=tests&scope=http`, {
+      headers: {
+        'x-qflush-token': 'test-token',
+      },
+    } as any);
+    expect(listResponse.status).toBe(200);
+    const listBody = await listResponse.json() as any;
+    expect(listBody.count).toBe(1);
+    expect(listBody.items?.[0]?.key).toBe('alpha');
+
+    const clearResponse = await fetch(`${baseUrl()}/api/memory/ephemeral/clear?namespace=tests&scope=http`, {
+      method: 'DELETE',
+      headers: {
+        'x-qflush-token': 'test-token',
+      },
+    } as any);
+    expect(clearResponse.status).toBe(200);
+    const clearBody = await clearResponse.json() as any;
+    expect(clearBody.removed).toBe(1);
   });
 
   it('GET /status?probe=1 exposes optional upstream probes without requiring default ollama', async () => {

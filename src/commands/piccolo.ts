@@ -3,6 +3,7 @@ import { runDoctor } from "./doctor.js";
 import { repairImportsAndDeps } from "../piccolo/repairs-imports.js";
 import { repairTsConfig } from "../piccolo/repairs-tsconfig.js";
 import { repairWorkflows } from "../piccolo/repairs-ci.js";
+import { repairLlmGuard } from "../piccolo/repairs-llm-guard.js";
 import { runTestsSafe } from "../piccolo/tests-safe.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -31,6 +32,7 @@ export async function runPiccolo(argv: string[] = []) {
   await repairImportsAndDeps();
   await repairTsConfig();
   await repairWorkflows();
+  await repairLlmGuard();
 
   // 4) tests en mode “safe”
   const ok = await runTestsSafe();

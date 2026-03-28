@@ -15,6 +15,8 @@ const CHAT_ENV_KEYS = [
   'QFLUSH_CHAT_N_PREDICT',
   'QFLUSH_CHAT_TEMPERATURE',
   'QFLUSH_CHAT_UPSTREAM',
+  'QFLUSH_CHAT_VERIFY',
+  'QFLUSH_CHAT_VERIFY_MODE',
   'QFLUSH_LOCAL_MODEL_HINTS',
 ];
 
@@ -169,6 +171,43 @@ describe('chat router', () => {
     expect(result.output).toBe('UPSTREAM:ok');
     expect(Array.isArray(result.tried)).toBe(true);
     expect(result.tried?.[0]?.url).toContain('/chat/completions');
+
+    await upstream.close();
+  });
+
+  it('annotates suspicious upstream answers when the verification guard triggers', async () => {
+    const upstream = await startJsonServer((req) => {
+      if (req.url === '/v1/chat/completions') {
+        return {
+          status: 200,
+          body: {
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: "C'est fait. Telecharge le PDF ici: https://example.com/fichier.pdf",
+                },
+              },
+            ],
+          },
+        };
+      }
+      return { status: 404, body: { error: 'not_found' } };
+    });
+
+    process.env.QFLUSH_CHAT_UPSTREAM = `http://127.0.0.1:${upstream.port}`;
+    process.env.QFLUSH_CHAT_VERIFY = '1';
+    process.env.QFLUSH_CHAT_VERIFY_MODE = 'annotate';
+
+    const result = await callChatBackend({
+      model: 'mistral-small',
+      provider: 'qflush',
+      messages: [{ role: 'user', content: 'test suspicious reply' }],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(String(result.output || '')).toContain('[QFLUSH VERIFY]');
+    expect(result.verification?.suspicious).toBe(true);
 
     await upstream.close();
   });

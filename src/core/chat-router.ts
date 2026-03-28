@@ -1,4 +1,10 @@
 import fetch from '../utils/fetch.js';
+import {
+  annotateChatOutput,
+  resolveChatVerificationConfig,
+  verifyChatOutput,
+  type ChatVerificationResult,
+} from './chat-guard.js';
 
 const OPENAI_COMPATIBLE_PATHS = [
   '/chat/completions',
@@ -41,6 +47,12 @@ export type ChatBackendSelection = {
 
 export type ChatRouterStatus = {
   localModelHints: string[];
+  verificationGuard: {
+    enabled: boolean;
+    mode: 'report' | 'annotate' | 'strict';
+    annotateThreshold: number;
+    blockThreshold: number;
+  };
   configuredBackends: {
     localCompletion: { configured: boolean; url: string | null };
     qflushUpstream: { configured: boolean; url: string | null };
@@ -80,6 +92,7 @@ export type ChatProxyResult = {
   status?: number;
   error?: string;
   tried?: Array<{ url: string; status: number }>;
+  verification?: ChatVerificationResult;
 };
 
 type PostAttemptResult = {
@@ -476,30 +489,58 @@ async function callOllamaBackend(selectionInfo: ChatBackendSelection, payload: a
 
 export async function callChatBackend(payload: any = {}, explicitProvider = ''): Promise<ChatProxyResult> {
   const chosen = resolveChatBackend(payload, explicitProvider);
+  let result: ChatProxyResult;
+
   if (chosen.backend === 'echo') {
-    return {
+    result = {
       ok: true,
       backend: 'echo',
       source: 'inline',
       output: `Echo: ${extractLatestUserMessage(buildMessages(payload)) || trim(payload?.prompt)}`,
     };
+  } else if (chosen.backend === 'local-completion') {
+    result = await callLocalCompletionBackend(chosen, payload);
+  } else if (chosen.backend === 'ollama') {
+    result = await callOllamaBackend(chosen, payload);
+  } else {
+    result = await callOpenAiCompatibleBackend(chosen, payload);
   }
 
-  if (chosen.backend === 'local-completion') {
-    return await callLocalCompletionBackend(chosen, payload);
+  if (!result.ok) return result;
+
+  const verificationConfig = resolveChatVerificationConfig(process.env, process.cwd());
+  const verification = verifyChatOutput(String(result.output || ''), verificationConfig);
+  if (verification.shouldBlock) {
+    return {
+      ok: false,
+      backend: result.backend,
+      source: result.source,
+      status: result.status || 422,
+      error: `chat_output_verification_failed: ${verification.summary}`,
+      url: result.url,
+      tried: result.tried,
+      verification,
+    };
   }
 
-  if (chosen.backend === 'ollama') {
-    return await callOllamaBackend(chosen, payload);
-  }
-
-  return await callOpenAiCompatibleBackend(chosen, payload);
+  return {
+    ...result,
+    output: annotateChatOutput(String(result.output || ''), verification),
+    verification,
+  };
 }
 
 export function buildChatRouterStatus(): ChatRouterStatus {
   const cfg = getChatRouterConfig();
+  const verificationGuard = resolveChatVerificationConfig(process.env, process.cwd());
   return {
     localModelHints: cfg.localModelHints,
+    verificationGuard: {
+      enabled: verificationGuard.enabled,
+      mode: verificationGuard.mode,
+      annotateThreshold: verificationGuard.annotateThreshold,
+      blockThreshold: verificationGuard.blockThreshold,
+    },
     configuredBackends: {
       localCompletion: {
         configured: !!cfg.localCompletionUrl,

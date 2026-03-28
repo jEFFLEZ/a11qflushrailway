@@ -40,6 +40,69 @@ const ENV_DISABLE_COPILOT =
   String(process.env.QFLUSH_DISABLE_COPILOT).toLowerCase() === 'true' ||
   process.env.QFLUSH_TELEMETRY === '0';
 
+const ENV_ENABLE_COPILOT =
+  process.env.QFLUSH_ENABLE_COPILOT === '1' ||
+  String(process.env.QFLUSH_ENABLE_COPILOT).toLowerCase() === 'true' ||
+  process.env.QFLUSH_COPILOT_ENABLED === '1' ||
+  String(process.env.QFLUSH_COPILOT_ENABLED).toLowerCase() === 'true';
+
+function parseListEnv(value?: string | null) {
+  return String(value || '')
+    .split(/[;,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function applyEnvOverrides() {
+  const webhookUrl =
+    String(
+      process.env.QFLUSH_COPILOT_WEBHOOK_URL ||
+      process.env.COPILOT_WEBHOOK_URL ||
+      process.env.WEBHOOK_URL ||
+      ''
+    ).trim();
+  const transports = parseListEnv(process.env.QFLUSH_COPILOT_TRANSPORTS);
+  const filePath = String(process.env.QFLUSH_COPILOT_FILE_PATH || '').trim();
+  const allowedData = parseListEnv(process.env.QFLUSH_COPILOT_ALLOWED_DATA);
+  const hmacSecretEnv = String(process.env.QFLUSH_COPILOT_HMAC_SECRET_ENV || '').trim();
+  const samplingRate = Number(process.env.QFLUSH_COPILOT_SAMPLING_RATE || '');
+  const maxPayloadSize = Number(process.env.QFLUSH_COPILOT_MAX_PAYLOAD_SIZE || '');
+
+  if (ENV_ENABLE_COPILOT) {
+    cfg.enabled = true;
+  }
+  if (webhookUrl) {
+    cfg.webhookUrl = webhookUrl;
+    if (!cfg.transports.includes('webhook')) {
+      cfg.transports = Array.from(new Set([...(cfg.transports || []), 'webhook']));
+    }
+  }
+  if (transports.length) {
+    cfg.transports = transports.filter((entry): entry is 'webhook'|'sse'|'file' =>
+      entry === 'webhook' || entry === 'sse' || entry === 'file'
+    );
+  }
+  if (filePath) {
+    cfg.filePath = filePath;
+  }
+  if (allowedData.length) {
+    cfg.allowedData = allowedData;
+  }
+  if (hmacSecretEnv) {
+    cfg.hmacSecretEnv = hmacSecretEnv;
+  }
+  if (Number.isFinite(samplingRate) && samplingRate > 0) {
+    cfg.samplingRate = samplingRate;
+  }
+  if (Number.isFinite(maxPayloadSize) && maxPayloadSize > 0) {
+    cfg.maxPayloadSize = maxPayloadSize;
+  }
+
+  if (cfg.enabled && !cfg.transports.length) {
+    cfg.transports = ['file'];
+  }
+}
+
 function loadCfg() {
   try {
     const p = path.join(process.cwd(), '.qflush', 'copilot.json');
@@ -52,6 +115,8 @@ function loadCfg() {
   } catch (e) {
     cfg = Object.assign({}, DEFAULT_CONFIG);
   }
+
+  applyEnvOverrides();
 
   if (ENV_DISABLE_COPILOT) {
     cfg.enabled = false;

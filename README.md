@@ -32,10 +32,23 @@ Comportements runtime & variables d'environnement importants
 - `QFLUSHD_PORT` : port du daemon (défaut 4500 ou 43421 selon scripts). Tests/CI attendent parfois `4500`.
 - `QFLUSH_ENABLE_REDIS` : contrôle l'utilisation de Redis (0 = in-memory fallback).
 - `QFLUSH_DISABLE_COPILOT` / `QFLUSH_TELEMETRY` : désactiver la passerelle copilot/telemetry en runtime.
+- `QFLUSH_ENABLE_COPILOT` / `QFLUSH_COPILOT_ENABLED` : active la telemetrie Copilot sans fichier local.
+- `QFLUSH_COPILOT_TRANSPORTS` : transports actifs (`file`, `webhook`, `sse`) separes par virgules.
+- `QFLUSH_COPILOT_WEBHOOK_URL` : webhook de sortie (Slack ou autre receiver JSON).
+- `QFLUSH_COPILOT_FILE_PATH` : chemin du journal telemetrie.
 - `QFLUSH_LOG_FORMAT` : format des logs (`pretty`, `plain`, `json`) pour Railway, desktop ou CI.
 - `QFLUSH_LOG_NO_COLOR` : désactive les couleurs ANSI même en mode `pretty`.
 - `QFLUSH_LOG_TIMESTAMPS` : active ou coupe les timestamps dans les logs texte.
 - `VITEST` : si défini, `vitest.setup.js` tente de require et démarrer `dist/daemon/qflushd`.
+
+Conseil Railway
+- ne pas “tout activer” a l'aveugle. Le minimum utile pour un Qflush riche mais stable:
+  - `QFLUSH_DISABLE_COPILOT=0`
+  - `QFLUSH_ENABLE_COPILOT=1`
+  - `QFLUSH_TELEMETRY=1`
+  - `QFLUSH_COPILOT_TRANSPORTS=file,webhook`
+  - `QFLUSH_COPILOT_WEBHOOK_URL=...` si tu veux des notifications
+  - `QFLUSH_DISABLE_REDIS=0` seulement si `REDIS_URL` est vraiment configure
 
 Profils d'environnement
 - qflush peut maintenant charger des profils depuis `.qflush/env.profiles.json`, `.qflush/env.profiles.yaml` ou `.qflush/env.profiles.yml`.

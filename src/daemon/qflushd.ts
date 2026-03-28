@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import fetch from '../utils/fetch.js';
 import { QFLUSH_MODE } from '../core/qflush-mode.js';
 import { buildChatRouterStatus, callChatBackend, probeConfiguredChatBackends } from '../core/chat-router.js';
+import { emitDiagnostic, emitEngineState, getConfig as getCopilotConfig, initCopilotBridge } from '../rome/copilot-bridge.js';
 
 let _server: http.Server | null = null;
 let _state: { safeMode: boolean; mode?: string } = { safeMode: false };
@@ -314,6 +315,12 @@ async function buildStatusPayload(port: number | string, options: { probeUpstrea
       upstreamMode: explicitUpstreamConfigured ? 'proxy' : 'echo-fallback',
       router: chatRouter,
     },
+    telemetry: {
+      enabled: !!getCopilotConfig()?.enabled,
+      transports: Array.isArray(getCopilotConfig()?.transports) ? getCopilotConfig().transports : [],
+      webhookConfigured: !!String(getCopilotConfig()?.webhookUrl || '').trim(),
+      filePath: getCopilotConfig()?.filePath || null,
+    },
     health,
     port: Number(port),
     timestamp: new Date().toISOString(),
@@ -387,6 +394,7 @@ async function computeFlexibleChecksumForPath(relPath: string) {
 export async function startServer(port?: number) {
   return new Promise((resolve, reject) => {
     try {
+      initCopilotBridge();
       if (_server) {
         return resolve({ ok: true, port: (port || process.env.QFLUSHD_PORT || DEFAULT_QFLUSHD_PORT) });
       }
@@ -466,6 +474,12 @@ export async function startServer(port?: number) {
                 return;
               } catch (e) {
                 console.warn('[qflushd] chat completion error:', String(e));
+                void emitDiagnostic({
+                  severity: 'error',
+                  source: 'qflushd.chat',
+                  message: String(e),
+                  timestamp: new Date().toISOString(),
+                }).catch(() => undefined);
                 sendJson(res, 500, { error: 'internal_error' });
                 return;
               }
@@ -772,6 +786,12 @@ export async function startServer(port?: number) {
         } catch (e) {
           try { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: String(e) })); } catch (_) { console.warn('[qflushd] failed to write 500 response'); }
           console.warn('[qflushd] server handler error:', String(e));
+          void emitDiagnostic({
+            severity: 'error',
+            source: 'qflushd.http',
+            message: String(e),
+            timestamp: new Date().toISOString(),
+          }).catch(() => undefined);
         }
       });
 
@@ -800,10 +820,33 @@ export async function startServer(port?: number) {
           console.warn(`[qflushd] ✅ listening on port ${p} (${addrStr})`);
           console.warn(`[qflushd] health check: http://0.0.0.0:${p}/health`);
         } catch (e) { console.warn('[qflushd] failed to get server address:', String(e)); }
+        void emitEngineState({
+          rules: [],
+          indexSummary: { count: 0, byType: {} },
+          runningServices: ['qflushd'],
+          config: {
+            mode: QFLUSH_MODE,
+            port: p,
+            telemetryEnabled: !!getCopilotConfig()?.enabled,
+            transports: getCopilotConfig()?.transports || [],
+          },
+        }).catch(() => undefined);
+        void emitDiagnostic({
+          severity: 'info',
+          source: 'qflushd.start',
+          message: `qflushd prêt sur le port ${p}`,
+          timestamp: new Date().toISOString(),
+        }).catch(() => undefined);
         resolve({ ok: true, port: p });
       });
 
       srv.on('error', (err: any) => {
+        void emitDiagnostic({
+          severity: 'error',
+          source: 'qflushd.listen',
+          message: String(err?.message || err),
+          timestamp: new Date().toISOString(),
+        }).catch(() => undefined);
         // If address already in use, attempt to probe existing server on the same port
         if (err?.code === 'EADDRINUSE') {
           try {

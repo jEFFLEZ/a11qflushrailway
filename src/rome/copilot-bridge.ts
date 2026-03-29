@@ -156,6 +156,8 @@ function writeFileEvent(event: TelemetryEvent) {
 export function initCopilotBridge() {
   loadCfg();
   if (!cfg.enabled) return;
+  // Log explicite de la config webhook au démarrage
+  console.log('[QFLUSH][COPILOT] Telemetry enabled:', cfg.enabled, '| webhookUrl:', cfg.webhookUrl, '| transports:', cfg.transports);
 }
 
 export async function emitEngineState(state: EngineState) {
@@ -176,12 +178,22 @@ export async function emitRuleEvent(ev: RuleEvent) {
   emitter.emit('telemetry', event);
 }
 
-export async function emitDiagnostic(diag: Diagnostic) {
+export async function emitDiagnostic(diag: Diagnostic & { user?: string; context?: any; stack?: string }) {
   if (!cfg.enabled) return;
-  const event: TelemetryEvent = { type: 'diagnostic', telemetryVersion: cfg.telemetryVersion, timestamp: new Date().toISOString(), payload: diag };
+  // Ajoute le maximum d'infos dans le payload
+  const payload = {
+    ...diag,
+    user: diag.user || (typeof process !== 'undefined' && process.env.USER) || null,
+    context: diag.context || {},
+    stack: diag.stack || (diag instanceof Error ? diag.stack : undefined) || undefined,
+    hostname: (typeof process !== 'undefined' && process.env.HOSTNAME) || undefined,
+    cwd: (typeof process !== 'undefined' && process.cwd && process.cwd()) || undefined,
+    timestamp: diag.timestamp || new Date().toISOString(),
+  };
+  const event: TelemetryEvent = { type: 'diagnostic', telemetryVersion: cfg.telemetryVersion, timestamp: new Date().toISOString(), payload };
   if (cfg.transports.includes('webhook')) await sendWebhook(event);
   if (cfg.transports.includes('file')) writeFileEvent(event);
-  try { saveTelemetryEvent('diag-'+Date.now(), 'diagnostic', Date.now(), diag); } catch (e) {}
+  try { saveTelemetryEvent('diag-'+Date.now(), 'diagnostic', Date.now(), payload); } catch (e) {}
   emitter.emit('telemetry', event);
 }
 

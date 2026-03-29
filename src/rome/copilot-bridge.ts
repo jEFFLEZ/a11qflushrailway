@@ -126,14 +126,30 @@ function loadCfg() {
 async function sendWebhook(event: TelemetryEvent) {
   if (!cfg.enabled) return;
   if (!cfg.webhookUrl) return;
+  let timeout: NodeJS.Timeout | null = null;
   try {
     const payload = JSON.stringify(event);
     const headers: any = { 'Content-Type': 'application/json' };
     const fetch = await resolveFetch();
     if (!fetch) return;
-    await fetch(cfg.webhookUrl, { method: 'POST', body: payload, headers });
+    const controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), 2500);
+    const response = await fetch(cfg.webhookUrl, {
+      method: 'POST',
+      body: payload,
+      headers,
+      signal: controller.signal as any,
+    } as any);
+    clearTimeout(timeout);
+    timeout = null;
+    if (response && 'ok' in response && !response.ok) {
+      throw new Error(`slack_webhook_failed:${(response as any).status}`);
+    }
   } catch (e) {
-    // best-effort
+    // Keep telemetry strictly best-effort and never block qflush behavior.
+    console.warn('[QFLUSH][COPILOT] webhook delivery skipped:', e instanceof Error ? e.message : String(e));
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 

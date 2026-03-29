@@ -1028,8 +1028,8 @@ export async function startServer(port?: number) {
         try {
           const addr = srv.address();
           const addrStr = typeof addr === 'string' ? addr : `${(addr as any)?.address}:${(addr as any)?.port}`;
-          console.warn(`[qflushd] ✅ listening on port ${p} (${addrStr})`);
-          console.warn(`[qflushd] health check: http://0.0.0.0:${p}/health`);
+          console.log(`[qflushd] listening on port ${p} (${addrStr})`);
+          console.log(`[qflushd] health check: http://127.0.0.1:${p}/health`);
         } catch (e) { console.warn('[qflushd] failed to get server address:', String(e)); }
         void emitEngineState({
           rules: [],
@@ -1118,11 +1118,11 @@ if (_argv1 === __filename) {
   } else {
     port = DEFAULT_QFLUSHD_PORT;
   }
-  console.warn(`[qflushd] starting with PORT=${process.env.PORT}, QFLUSHD_PORT=${process.env.QFLUSHD_PORT}, resolved to: ${port}`);
+  console.log(`[qflushd] starting with PORT=${process.env.PORT}, QFLUSHD_PORT=${process.env.QFLUSHD_PORT}, resolved to: ${port}`);
   (async () => {
     try {
       await startServer(port);
-      console.warn('[qflushd] ✅ server ready');
+      console.log('[qflushd] server ready');
       if (process.env.QFLUSH_WATCHDOG !== '0') {
         startWatchdog();
       }

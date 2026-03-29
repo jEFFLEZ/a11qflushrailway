@@ -22,8 +22,8 @@
   "author": "jEFFLEZ",
   "license": "MIT",
   "dependencies": {
-    "@funeste38/freeland": "*",
-    "@funeste38/nezlephant": "*"
+    "@funeste38/freeland": "npm:freeland@^0.1.1",
+    "@funeste38/nezlephant": "^1.0.3"
   },
   "publishConfig": {
     "access": "public"

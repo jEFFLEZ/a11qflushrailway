@@ -1,7 +1,17 @@
 // ROME-TAG: 0x1609C0
 
 import { existsSync } from "fs";
-import { join } from "path";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const REPO_ROOT = resolve(__dirname, "../..");
+
+function candidateBases() {
+  const bases = [process.cwd(), REPO_ROOT];
+  return Array.from(new Set(bases.filter(Boolean)));
+}
 
 // Map service names to npm package names and local folder candidates
 export type ServiceInfo = { pkg?: string; candidates?: string[] };
@@ -19,15 +29,20 @@ export const SERVICE_MAP: Record<string, ServiceInfo> = {
 export function resolvePaths(detected: any = {}) {
   const out: Record<string, string | undefined> = {};
   for (const key of Object.keys(SERVICE_MAP)) {
-    // Prefer local candidate folders when present in the workspace
+    // Prefer local candidate folders from the current project first, then
+    // fall back to the qflush repo itself so tests and external invocations
+    // still resolve bundled modules such as ./spyder.
     const tries = SERVICE_MAP[key].candidates || [];
     let found: string | undefined;
-    for (const t of tries) {
-      const p = join(process.cwd(), t);
-      if (existsSync(p)) {
-        found = p;
-        break;
+    for (const base of candidateBases()) {
+      for (const t of tries) {
+        const p = join(base, t);
+        if (existsSync(p)) {
+          found = p;
+          break;
+        }
       }
+      if (found) break;
     }
     if (found) {
       out[key] = found;

@@ -3,6 +3,7 @@
 import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import logger from './logger.js';
 import { SERVICE_MAP } from './paths.js';
 
@@ -14,6 +15,14 @@ function isWindows() {
 
 function shouldLogNpzDebug() {
   return process.env.QFLUSH_DEBUG_NPZ === '1' || process.env.QFLUSH_DEBUG === '1';
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, '../..');
+
+function candidateCwds(cwd: string) {
+  return Array.from(new Set([cwd, REPO_ROOT].filter(Boolean)));
 }
 
 function findLocalBin(moduleName: string, cwd: string): string | null {
@@ -53,31 +62,33 @@ export function npzResolve(nameOrPkg: string, opts: { cwd?: string } = {}): Reso
     for (const key of Object.keys(SERVICE_MAP)) {
       if (SERVICE_MAP[key].pkg === nameOrPkg) {
         const tries = SERVICE_MAP[key].candidates || [];
-        for (const t of tries) {
-          const candidatePath = path.join(cwd, t);
-          try {
-            if (!existsSync(candidatePath)) continue;
-            // prefer dist entry if exists
-            const distEntry = path.join(candidatePath, 'dist', 'index.js');
-            if (existsSync(distEntry)) {
-              logger.nez && logger.nez('NPZ:JOKER', `${nameOrPkg} -> local dist ${distEntry}`);
-              return { gate: 'green', cmd: process.execPath, args: [distEntry], cwd: path.dirname(distEntry) };
-            }
-            // otherwise if package.json with start script exists, prefer npm --prefix <candidate> run start
-            const pkgJsonPath = path.join(candidatePath, 'package.json');
-            if (existsSync(pkgJsonPath)) {
-              try {
-                const pj = require(pkgJsonPath);
-                if (pj && pj.scripts && pj.scripts.start) {
-                  logger.nez && logger.nez('NPZ:JOKER', `${nameOrPkg} -> local start script at ${candidatePath}`);
-                  return { gate: 'green', cmd: 'npm', args: ['--prefix', candidatePath, 'run', 'start'], cwd: candidatePath };
-                }
-              } catch (error_) {
-                logger.warn && logger.warn(`[NPZ] failed to read package.json at ${pkgJsonPath}: ${String(error_)}`);
+        for (const baseCwd of candidateCwds(cwd)) {
+          for (const t of tries) {
+            const candidatePath = path.join(baseCwd, t);
+            try {
+              if (!existsSync(candidatePath)) continue;
+              // prefer dist entry if exists
+              const distEntry = path.join(candidatePath, 'dist', 'index.js');
+              if (existsSync(distEntry)) {
+                logger.nez && logger.nez('NPZ:JOKER', `${nameOrPkg} -> local dist ${distEntry}`);
+                return { gate: 'green', cmd: process.execPath, args: [distEntry], cwd: path.dirname(distEntry) };
               }
+              // otherwise if package.json with start script exists, prefer npm --prefix <candidate> run start
+              const pkgJsonPath = path.join(candidatePath, 'package.json');
+              if (existsSync(pkgJsonPath)) {
+                try {
+                  const pj = require(pkgJsonPath);
+                  if (pj && pj.scripts && pj.scripts.start) {
+                    logger.nez && logger.nez('NPZ:JOKER', `${nameOrPkg} -> local start script at ${candidatePath}`);
+                    return { gate: 'green', cmd: 'npm', args: ['--prefix', candidatePath, 'run', 'start'], cwd: candidatePath };
+                  }
+                } catch (error_) {
+                  logger.warn && logger.warn(`[NPZ] failed to read package.json at ${pkgJsonPath}: ${String(error_)}`);
+                }
+              }
+            } catch (error_) {
+              logger.warn && logger.warn(`[NPZ] candidate check failed for ${candidatePath}: ${String(error_)}`);
             }
-          } catch (error_) {
-            logger.warn && logger.warn(`[NPZ] candidate check failed for ${candidatePath}: ${String(error_)}`);
           }
         }
         break;

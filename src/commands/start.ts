@@ -124,6 +124,9 @@ function persistSpyderAdminPort(spyPort: number) {
 // Ensure a package at prefixPath has build artifacts, try to build if missing
 export async function ensureBuiltIfNeeded(prefixPath: string): Promise<boolean> {
   try {
+    const npmBuild = process.platform === 'win32'
+      ? { cmd: 'cmd.exe', args: ['/d', '/s', '/c', 'npm', '--prefix'] as string[] }
+      : { cmd: 'npm', args: ['--prefix'] as string[] };
     const candidates = [
       prefixPath,
       path.join(prefixPath, 'spyder'),
@@ -146,7 +149,7 @@ export async function ensureBuiltIfNeeded(prefixPath: string): Promise<boolean> 
         if (!pj || !pj.scripts || !pj.scripts.build) continue;
 
         logger.info(`Local package at ${cand} missing dist; running build...`);
-        const r = spawnSync('npm', ['--prefix', cand, 'run', 'build'], { stdio: 'inherit' });
+        const r = spawnSync(npmBuild.cmd, [...npmBuild.args, cand, 'run', 'build'], { stdio: 'inherit' });
         if (r.status === 0) {
           const distEntry = path.join(cand, 'dist', 'index.js');
           if (fs.existsSync(distEntry)) return true;
@@ -298,12 +301,20 @@ export async function resolveRunCommandForPackage(mod: string, pkgPath: string, 
     logger.warn(`${mod} bin entry not found at ${binPath}. ${rebuildInstructionsFor(pkgPath)}`);
   }
 
-  // 2) package start script
+  // 2) package main entry for internal packages published without bin/start
+  if (pkgJson?.main) {
+    const mainEntry = path.join(pkgPath, pkgJson.main);
+    if (pathExists(mainEntry)) {
+      return { cmd: process.execPath, args: [mainEntry], cwd: pkgPath };
+    }
+  }
+
+  // 3) package start script
   if (pkgJson?.scripts?.start) {
     return { cmd: 'npm', args: ['--prefix', pkgPath, 'run', 'start'], cwd: pkgPath, buildPrefix: pkgPath };
   }
 
-  // 3) try common subpackage locations
+  // 4) try common subpackage locations
   const subCandidates = ['spyder', 'apps/spyder-core'];
   for (const sub of subCandidates) {
     try {
@@ -311,6 +322,12 @@ export async function resolveRunCommandForPackage(mod: string, pkgPath: string, 
       const subPkgJsonPath = path.join(subPkg, 'package.json');
       if (fs.existsSync(subPkgJsonPath)) {
         const subPkgJson = readPackageJson(subPkg);
+        if (subPkgJson?.main) {
+          const subMainEntry = path.join(subPkg, subPkgJson.main);
+          if (pathExists(subMainEntry)) {
+            return { cmd: process.execPath, args: [subMainEntry], cwd: subPkg };
+          }
+        }
         if (subPkgJson?.scripts?.start) {
           return { cmd: 'npm', args: ['--prefix', subPkg, 'run', 'start'], cwd: subPkg, buildPrefix: subPkg };
         }
@@ -318,7 +335,7 @@ export async function resolveRunCommandForPackage(mod: string, pkgPath: string, 
     } catch (_) {}
   }
 
-  // 4) fallback to merged resolver will be handled by caller
+  // 5) fallback to merged resolver will be handled by caller
   return null;
 }
 

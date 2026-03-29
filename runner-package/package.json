@@ -9,7 +9,7 @@
     "bin"
   ],
   "dependencies": {
-    "@funeste38/qflush": "3.1.4"
+    "@funeste38/qflush": "^4.0.7"
   },
   "license": "SEE LICENSE IN LICENSE-FUNESTERIE.txt"
 }

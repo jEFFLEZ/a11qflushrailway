@@ -60,12 +60,12 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@funeste38/bat": "latest",
-    "@funeste38/envaptex": "latest",
-    "@funeste38/freeland": "latest",
-    "@funeste38/nezlephant": "latest",
+    "@funeste38/bat": "^1.0.1",
+    "@funeste38/envaptex": "^1.0.0",
+    "@funeste38/freeland": "npm:freeland@^0.1.1",
+    "@funeste38/nezlephant": "^1.0.3",
     "@funeste38/qflush": "^3.1.7",
-    "@funeste38/rome": "latest",
+    "@funeste38/rome": "^1.5.4",
     "csv-stringify": "^6.6.0",
     "js-yaml": "^4.1.0",
     "node-fetch": "^3.3.2",

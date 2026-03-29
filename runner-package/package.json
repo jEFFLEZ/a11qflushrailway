@@ -1,6 +1,6 @@
 {
   "name": "@funeste38/qflush-runner",
-  "version": "3.1.6-runner",
+  "version": "3.1.7-runner",
   "description": "Lightweight qflush runner variant for CI (disables supervisor and heavy services)",
   "bin": {
     "qflush-runner": "bin/qflush-runner.js"
@@ -10,7 +10,18 @@
     "README.md"
   ],
   "dependencies": {
-    "@funeste38/qflush": "^4.0.8"
+    "@funeste38/qflush": "^4.0.10"
   },
-  "license": "SEE LICENSE IN LICENSE-FUNESTERIE.txt"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jEFFLEZ/qflush.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jEFFLEZ/qflush/issues"
+  },
+  "homepage": "https://github.com/jEFFLEZ/qflush#readme",
+  "license": "SEE LICENSE IN LICENSE-FUNESTERIE.txt",
+  "publishConfig": {
+    "access": "public"
+  }
 }

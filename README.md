@@ -9,7 +9,7 @@ It combines a CLI, a long-running daemon, ephemeral memory endpoints, NPZ helper
 ## Current package line
 
 - npm package: `@funeste38/qflush`
-- current repo version: `4.0.9`
+- current repo version: `4.0.10`
 - daemon entry point: `src/daemon/qflushd.ts`
 
 ## What qflush is good at

@@ -1,6 +1,6 @@
 {
   "name": "@funeste38/qflush",
-  "version": "4.0.9",
+  "version": "4.0.10",
   "description": "QFLUSH orchestrator",
   "type": "module",
   "bin": {
@@ -65,12 +65,12 @@
   "author": "funeste38",
   "license": "SEE LICENSE IN LICENSE-FUNESTERIE.txt",
   "dependencies": {
-    "@funeste38/bat": "^1.0.1",
-    "@funeste38/envaptex": "^1.0.0",
-    "@funeste38/freeland": "npm:freeland@^0.1.1",
-    "@funeste38/nezlephant": "^1.0.3",
-    "@funeste38/rome": "^1.5.4",
-    "@funeste38/spyder": "^1.0.3",
+    "@funeste38/bat": "^1.0.2",
+    "@funeste38/envaptex": "^1.0.3",
+    "@funeste38/freeland": "npm:freeland@^0.1.2",
+    "@funeste38/nezlephant": "^1.0.4",
+    "@funeste38/rome": "^1.5.5",
+    "@funeste38/spyder": "^1.0.4",
     "@octokit/auth-app": "^8.1.2",
     "cookie-parser": "^1.4.7",
     "csv-stringify": "^6.6.0",

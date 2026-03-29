@@ -34,6 +34,7 @@ type FlowExposure = 'public' | 'admin' | 'internal' | 'unknown';
 function getConfiguredToken(): string {
   return String(
     process.env.NEZ_SERVICE_TOKEN ||
+    process.env.NEZ_ADMIN_TOKEN ||
     ''
   ).trim();
 }

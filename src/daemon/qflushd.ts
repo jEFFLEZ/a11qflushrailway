@@ -1,11 +1,11 @@
 ﻿// qflush daemon lightweight test server
 // This implementation is minimal and intended to satisfy legacy tests that expect an HTTP control server.
 
-import * as http from 'http';
-import * as fs from 'fs';
-import * as path from 'path';
-import { safeWriteFileSync, safeAppendFileSync, ensureParentDir } from '../utils/safe-fs.js';
-import { fileURLToPath } from 'url';
+import * as http from 'node:http';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { safeWriteFileSync } from '../utils/safe-fs.js';
+import { fileURLToPath } from 'node:url';
 import fetch from '../utils/fetch.js';
 import { QFLUSH_MODE } from '../core/qflush-mode.js';
 import { buildChatRouterStatus, callChatBackend, probeConfiguredChatBackends } from '../core/chat-router.js';
@@ -33,16 +33,9 @@ type FlowExposure = 'public' | 'admin' | 'internal' | 'unknown';
 
 function getConfiguredToken(): string {
   return String(
-    process.env.NEZ_ADMIN_TOKEN ||
-    process.env.QFLUSH_TOKEN ||
-    process.env.NPZ_ADMIN_TOKEN ||
+    process.env.NEZ_SERVICE_TOKEN ||
     ''
   ).trim();
-}
-
-function shouldProtectServiceRoutes(): boolean {
-  if (process.env.QFLUSH_REQUIRE_AUTH === '1') return true;
-  return !!getConfiguredToken();
 }
 
 function readProvidedToken(req: http.IncomingMessage): string {
@@ -52,7 +45,6 @@ function readProvidedToken(req: http.IncomingMessage): string {
   }
   return String(
     req.headers['x-qflush-token'] ||
-    req.headers['x-admin-token'] ||
     ''
   ).trim();
 }
@@ -65,9 +57,10 @@ function isAuthorized(req: http.IncomingMessage): boolean {
 }
 
 function ensureAuthorized(req: http.IncomingMessage, res: http.ServerResponse, options: { optional?: boolean } = {}) {
-  const mustProtect = shouldProtectServiceRoutes();
-  if (!mustProtect && options.optional) return true;
-  if (!mustProtect) {
+  // Always require authorization if a token is configured
+  const tokenConfigured = !!getConfiguredToken();
+  if (!tokenConfigured && options.optional) return true;
+  if (!tokenConfigured) {
     sendJson(res, 503, { ok: false, error: 'missing_token_configuration' });
     return false;
   }
@@ -84,7 +77,7 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
 }
 
 function parseCsvList(raw: unknown): string[] {
-  return String(raw || '')
+  return String(typeof raw === 'string' ? raw : '')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
@@ -150,7 +143,6 @@ async function buildHealthReport(options: { probeUpstreams?: boolean } = {}) {
   const logsDir = path.join(stateDir, 'logs');
   const romeIndexPath = path.join(stateDir, 'rome-index.json');
   const checksumsPath = path.join(stateDir, 'checksums.json');
-  const authRequired = shouldProtectServiceRoutes();
   const tokenConfigured = !!getConfiguredToken();
   const flowPolicy = getFlowPolicy();
   const probeUpstreams = !!options.probeUpstreams;
@@ -174,8 +166,8 @@ async function buildHealthReport(options: { probeUpstreams?: boolean } = {}) {
       path: checksumsPath,
     },
     authConfiguration: {
-      ok: !authRequired || tokenConfigured,
-      required: authRequired,
+      ok: tokenConfigured,
+      required: true,
       tokenConfigured,
     },
     flowPolicy: {
@@ -372,7 +364,7 @@ async function buildStatusPayload(port: number | string, options: { probeUpstrea
       memorySummaryDefault: 'a11.memory.summary.v1',
     },
     auth: {
-      protectedRoutes: shouldProtectServiceRoutes(),
+      // protectedRoutes: shouldProtectServiceRoutes(),
       tokenConfigured: !!getConfiguredToken(),
       adminRoutesRequireToken: true,
     },
@@ -453,8 +445,12 @@ async function computeFlexibleChecksumForPath(relPath: string) {
       fc = null;
     }
     if (fc && typeof fc.flexibleChecksumFile === 'function') {
-      const val = await fc.flexibleChecksumFile(filePath);
-      return { success: true, checksum: String(val) };
+      try {
+        const val = await fc.flexibleChecksumFile(filePath);
+        return { success: true, checksum: String(val) };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
     }
     return { success: false, error: 'checksum_unavailable' };
   } catch (e) {
@@ -470,7 +466,16 @@ export async function startServer(port?: number) {
         return resolve({ ok: true, port: (port || process.env.QFLUSHD_PORT || DEFAULT_QFLUSHD_PORT) });
       }
 
-      const p = port || (process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : DEFAULT_QFLUSHD_PORT);
+      let p: number;
+      if (port) {
+        p = port;
+      } else if (process.env.PORT) {
+        p = Number(process.env.PORT);
+      } else if (process.env.QFLUSHD_PORT) {
+        p = Number(process.env.QFLUSHD_PORT);
+      } else {
+        p = DEFAULT_QFLUSHD_PORT;
+      }
       const srv = http.createServer(async (req, res) => {
         try {
           const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
@@ -827,7 +832,7 @@ export async function startServer(port?: number) {
             }
 
             // checksum endpoints
-            if (parsed.pathname && parsed.pathname.indexOf('/npz/checksum') === 0) {
+            if (parsed.pathname?.startsWith('/npz/checksum')) {
               try {
                 const baseDir = path.join(process.cwd(), '.qflush');
                 if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true });
@@ -1104,7 +1109,14 @@ export default { startServer, stopServer };
 const __filename = fileURLToPath(import.meta.url);
 const _argv1 = process.argv && process.argv[1] ? path.resolve(process.argv[1]) : '';
 if (_argv1 === __filename) {
-  const port = process.env.PORT ? Number(process.env.PORT) : process.env.QFLUSHD_PORT ? Number(process.env.QFLUSHD_PORT) : DEFAULT_QFLUSHD_PORT;
+  let port: number;
+  if (process.env.PORT) {
+    port = Number(process.env.PORT);
+  } else if (process.env.QFLUSHD_PORT) {
+    port = Number(process.env.QFLUSHD_PORT);
+  } else {
+    port = DEFAULT_QFLUSHD_PORT;
+  }
   console.warn(`[qflushd] starting with PORT=${process.env.PORT}, QFLUSHD_PORT=${process.env.QFLUSHD_PORT}, resolved to: ${port}`);
   (async () => {
     try {
@@ -1130,3 +1142,41 @@ process.on('SIGTERM', () => {
   clearDaemonState();
   process.exit(0);
 });
+
+// --- QFLUSH WATCHDOG ---
+function startWatchdog({ url = 'http://127.0.0.1:' + (process.env.PORT || process.env.QFLUSHD_PORT || 43421) + '/health', intervalMs = 5000, maxFailures = 3 } = {}) {
+  let failures = 0;
+  async function check() {
+    // Timeout via AbortController (Node.js 18+)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    try {
+      // TypeScript fix: cast to any to allow signal property
+      const res = await fetch(url, { signal: controller.signal } as any);
+      clearTimeout(timeout);
+      if (res.ok) {
+        failures = 0;
+        return;
+      }
+      failures++;
+      console.warn(`[WATCHDOG] Healthcheck failed (HTTP ${res.status}), failures: ${failures}`);
+    } catch (e) {
+      clearTimeout(timeout);
+      failures++;
+      const msg = (typeof e === 'object' && e && 'message' in e) ? (e as any).message : String(e);
+      console.warn(`[WATCHDOG] Healthcheck error: ${msg}, failures: ${failures}`);
+    }
+    if (failures >= maxFailures) {
+      console.error(`[WATCHDOG] ${failures} healthcheck failures, exiting for platform restart.`);
+      process.exit(1);
+    }
+  }
+  setInterval(check, intervalMs);
+  check();
+}
+
+// Activer le watchdog si pas désactivé
+if (process.env.QFLUSH_WATCHDOG !== '0') {
+  startWatchdog();
+}
+// --- END QFLUSH WATCHDOG ---

@@ -57,6 +57,7 @@ function applyEnvOverrides() {
   const webhookUrl =
     String(
       process.env.QFLUSH_COPILOT_WEBHOOK_URL ||
+      process.env.SLACK_WEBHOOK_URL ||
       process.env.COPILOT_WEBHOOK_URL ||
       process.env.WEBHOOK_URL ||
       ''
@@ -123,12 +124,48 @@ function loadCfg() {
   }
 }
 
+function isSlackIncomingWebhook(url?: string | null) {
+  const value = String(url || '').trim().toLowerCase();
+  return value.startsWith('https://hooks.slack.com/services/');
+}
+
+function truncateSlackText(value: unknown, maxLength = 2800) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function buildSlackWebhookPayload(event: TelemetryEvent) {
+  const type = String(event?.type || 'telemetry').trim();
+  const payload = event?.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
+  const source = truncateSlackText(payload?.source || payload?.service || 'qflush', 80);
+  const severity = truncateSlackText(payload?.severity || '', 40);
+  const summary =
+    truncateSlackText(payload?.message || payload?.summary || payload?.ruleId || type, 1000) ||
+    `${type} event`;
+  const context = truncateSlackText(JSON.stringify(payload), 1400);
+  const titleBits = ['QFLUSH'];
+  if (severity) titleBits.push(severity.toUpperCase());
+  titleBits.push(type);
+  const lines = [
+    `*${titleBits.join(' · ')}*`,
+    source ? `Source: ${source}` : '',
+    `Message: ${summary}`,
+    context ? `Context: \`${context}\`` : '',
+  ].filter(Boolean);
+  return { text: lines.join('\n') };
+}
+
 async function sendWebhook(event: TelemetryEvent) {
   if (!cfg.enabled) return;
   if (!cfg.webhookUrl) return;
   let timeout: NodeJS.Timeout | null = null;
   try {
-    const payload = JSON.stringify(event);
+    const payload = JSON.stringify(
+      isSlackIncomingWebhook(cfg.webhookUrl)
+        ? buildSlackWebhookPayload(event)
+        : event
+    );
     const headers: any = { 'Content-Type': 'application/json' };
     const fetch = await resolveFetch();
     if (!fetch) return;

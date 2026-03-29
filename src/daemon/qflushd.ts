@@ -1151,21 +1151,30 @@ process.on('SIGTERM', () => {
 function startWatchdog({ url = 'http://127.0.0.1:' + (process.env.PORT || process.env.QFLUSHD_PORT || 43421) + '/health', intervalMs = 5000, maxFailures = 3 } = {}) {
   let failures = 0;
   async function check() {
-    // Timeout via AbortController (Node.js 18+)
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
     try {
-      // TypeScript fix: cast to any to allow signal property
-      const res = await fetch(url, { signal: controller.signal } as any);
-      clearTimeout(timeout);
-      if (res.ok) {
+      const parsed = new URL(url);
+      const statusCode = await new Promise<number>((resolve, reject) => {
+        const req = http.request({
+          hostname: parsed.hostname,
+          port: parsed.port ? Number(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80),
+          path: `${parsed.pathname || '/'}${parsed.search || ''}`,
+          method: 'GET',
+          timeout: 2000,
+        }, (res) => {
+          res.resume();
+          resolve(Number(res.statusCode || 0));
+        });
+        req.on('timeout', () => req.destroy(new Error('timeout')));
+        req.on('error', reject);
+        req.end();
+      });
+      if (statusCode >= 200 && statusCode < 300) {
         failures = 0;
         return;
       }
       failures++;
-      console.warn(`[WATCHDOG] Healthcheck failed (HTTP ${res.status}), failures: ${failures}`);
+      console.warn(`[WATCHDOG] Healthcheck failed (HTTP ${statusCode}), failures: ${failures}`);
     } catch (e) {
-      clearTimeout(timeout);
       failures++;
       const msg = (typeof e === 'object' && e && 'message' in e) ? (e as any).message : String(e);
       console.warn(`[WATCHDOG] Healthcheck error: ${msg}, failures: ${failures}`);

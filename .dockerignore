@@ -1,5 +1,15 @@
 # Exclure les fichiers volumineux et inutiles du build Railway/Docker
 node_modules
+dist
+.git
+.qflush
+.qflash
+.funesterie
+tmp
+vsix
+docs
+examples
+coverage
 extensions
 installers
 *.pdf

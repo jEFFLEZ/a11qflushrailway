@@ -64,6 +64,9 @@
   ],
   "author": "funeste38",
   "license": "SEE LICENSE IN LICENSE-FUNESTERIE.txt",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@funeste38/bat": "^1.0.2",
     "@funeste38/envaptex": "^1.0.3",

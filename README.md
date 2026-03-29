@@ -9,7 +9,7 @@ It combines a CLI, a long-running daemon, ephemeral memory endpoints, NPZ helper
 ## Current package line
 
 - npm package: `@funeste38/qflush`
-- current repo version: `4.0.8`
+- current repo version: `4.0.9`
 - daemon entry point: `src/daemon/qflushd.ts`
 
 ## What qflush is good at
@@ -97,6 +97,8 @@ Recommended minimum for a stable hosted instance:
 - `QFLUSH_COPILOT_WEBHOOK_URL=...` only if you really want alerts
 - `QFLUSH_DISABLE_REDIS=0` only when Redis is actually configured
 - `NEZ_ADMIN_TOKEN=...`
+
+On hosted ESM builds, qflush now loads `ioredis` through a compatible Node module bridge instead of silently falling back to memory because `require` was unavailable.
 
 ## Development
 

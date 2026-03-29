@@ -39,7 +39,7 @@ Comportements runtime & variables d'environnement importants
 - `QFLUSH_LOG_FORMAT` : format des logs (`pretty`, `plain`, `json`) pour Railway, desktop ou CI.
 - `QFLUSH_LOG_NO_COLOR` : désactive les couleurs ANSI même en mode `pretty`.
 - `QFLUSH_LOG_TIMESTAMPS` : active ou coupe les timestamps dans les logs texte.
-- `QFLUSH_TOKEN` : token admin/API partagé pour `/run`, `/api/admin/run` et les endpoints mémoire protégés.
+NEZ_ADMIN_TOKEN : token admin/API partagé pour `/run`, `/api/admin/run` et les endpoints mémoire protégés.
 - `QFLUSH_EPHEMERAL_MEMORY_TTL_SEC` : TTL par défaut de la mémoire éphémère.
 - `QFLUSH_EPHEMERAL_MEMORY_MAX_TTL_SEC` : TTL maximum autorisé.
 - `QFLUSH_EPHEMERAL_MEMORY_NAMESPACE` / `QFLUSH_EPHEMERAL_MEMORY_SCOPE` : valeurs par défaut pour la mémoire éphémère.
@@ -54,7 +54,7 @@ Conseil Railway
   - `QFLUSH_COPILOT_TRANSPORTS=file,webhook`
   - `QFLUSH_COPILOT_WEBHOOK_URL=...` si tu veux des notifications
   - `QFLUSH_DISABLE_REDIS=0` seulement si `REDIS_URL` est vraiment configure
-  - `QFLUSH_TOKEN=...` pour sécuriser les appels backend -> qflush
+  - `NEZ_ADMIN_TOKEN=...` pour sécuriser les appels backend -> qflush
 
 Memoire ephemere
 - Qflush expose maintenant une mémoire éphémère à TTL réel:

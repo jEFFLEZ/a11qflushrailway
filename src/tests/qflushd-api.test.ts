@@ -32,7 +32,7 @@ let port = 0;
 const baseUrl = () => `http://127.0.0.1:${port}`;
 
 beforeAll(async () => {
-  process.env.QFLUSH_TOKEN = 'test-token';
+  process.env.NEZ_ADMIN_TOKEN = 'test-token';
   process.env.QFLUSH_REQUIRE_AUTH = '1';
   process.env.QFLUSH_CHAT_UPSTREAM = '';
   process.env.QFLUSH_RUN_ALLOWLIST = 'a11.chat.v1,a11.memory.summary.v1';

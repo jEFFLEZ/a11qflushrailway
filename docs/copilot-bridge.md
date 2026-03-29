@@ -30,7 +30,7 @@ function verify(payload, headerSig, secret) {
 ```
 
 ## Endpoint auth
-- Protect `/copilot/*` and `/npz/engine/*` endpoints by setting `QFLUSH_TOKEN` env var on the daemon.
+- Protect `/copilot/*` and `/npz/engine/*` endpoints by setting `NEZ_ADMIN_TOKEN` env var on the daemon.
 - Include header `x-qflush-token: <TOKEN>` when calling these endpoints (CLI or extension).
 
 ## Telemetry retention

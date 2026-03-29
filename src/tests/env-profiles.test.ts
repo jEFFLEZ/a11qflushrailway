@@ -79,7 +79,7 @@ describe("env profiles", () => {
         profiles: {
           dev: {
             vars: { PORT: "43421" },
-            required: ["PORT", "QFLUSH_TOKEN"],
+            required: ["PORT", "NEZ_ADMIN_TOKEN"],
           },
         },
       }),
@@ -88,7 +88,7 @@ describe("env profiles", () => {
 
     const validation = validateEnvProfile("dev", cwd);
     expect(validation.ok).toBe(false);
-    expect(validation.missing).toEqual(["QFLUSH_TOKEN"]);
+    expect(validation.missing).toEqual(["NEZ_ADMIN_TOKEN"]);
   });
 
   it("writes a sample config on init", () => {

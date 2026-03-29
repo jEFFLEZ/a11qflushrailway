@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 
 function getExpectedToken(): string | null {
-  if (process.env.QFLUSH_TOKEN) return process.env.QFLUSH_TOKEN;
+  if (process.env.NEZ_ADMIN_TOKEN) return process.env.NEZ_ADMIN_TOKEN;
 
   // Mode test/CI : token toujours présent
   if (process.env.VITEST_WORKER_ID || process.env.QFLUSH_SAFE_CI === '1') {
@@ -23,7 +23,7 @@ export function requireQflushToken(
   if (!token) {
     return res.status(401).json({
       success: false,
-      error: 'QFLUSH_TOKEN not configured on server',
+      error: 'NEZ_ADMIN_TOKEN not configured on server',
     });
   }
 

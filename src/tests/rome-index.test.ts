@@ -42,7 +42,7 @@ export async function runTests() {
     if (!(await isReachable(100, 200))) {
       try {
         // ensure daemon token available when starting in-process or spawning
-        if (!process.env.QFLUSH_TOKEN) process.env.QFLUSH_TOKEN = 'test-token';
+        if (!process.env.NEZ_ADMIN_TOKEN) process.env.NEZ_ADMIN_TOKEN = 'test-token';
         // prefer importing the TS module (no .js) so Vitest can resolve it
         // add explicit extension to satisfy Node ESM resolution in TS settings
         serverMod = await import('../daemon/qflushd.js');

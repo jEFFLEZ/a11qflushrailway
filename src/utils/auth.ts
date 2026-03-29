@@ -3,7 +3,7 @@
 import { Request } from 'express';
 
 export function isAdminAuthorized(req: Request): boolean {
-  const token = process.env.NPZ_ADMIN_TOKEN;
+  const token = process.env.NEZ_ADMIN_TOKEN;
   const user = process.env.NPZ_ADMIN_USER;
   const pass = process.env.NPZ_ADMIN_PASS;
   const allowIps = (process.env.NPZ_ADMIN_ALLOW_IPS || '').split(',').map(s => s.trim()).filter(Boolean);

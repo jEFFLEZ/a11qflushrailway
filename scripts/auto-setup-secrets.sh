@@ -27,8 +27,8 @@ gen_hex() {
 
 echo "Repo: $REPO"
 
-QFLUSH_TOKEN=$(gen_hex)
-echo "Generated QFLUSH_TOKEN: $QFLUSH_TOKEN"
+NEZ_ADMIN_TOKEN=$(gen_hex)
+echo "Generated NEZ_ADMIN_TOKEN: $NEZ_ADMIN_TOKEN"
 
 # prompt for other values
 read -r -p "Provide NPM_TOKEN (leave empty to skip): " NPM_TOKEN

@@ -35,7 +35,7 @@ async function startDaemon() {
   DAEMON_PORT = await getFreePort();
   // ensure test token is present for the spawned daemon
   const env = { ...process.env, QFLUSHD_PORT: String(DAEMON_PORT) } as any;
-  if (!env.QFLUSH_TOKEN) env.QFLUSH_TOKEN = process.env.QFLUSH_TOKEN || 'test-token';
+  if (!env.NEZ_ADMIN_TOKEN) env.NEZ_ADMIN_TOKEN = process.env.NEZ_ADMIN_TOKEN || 'test-token';
 
   // spawn a Node process that requires the module and starts the server
   const nodeCmd = `require('${path.join(process.cwd(), 'dist', 'daemon', 'qflushd.js').replace(/\\/g,'\\\\')}').startServer(${DAEMON_PORT}).catch(e=>{ console.error(e); process.exit(1); });`;

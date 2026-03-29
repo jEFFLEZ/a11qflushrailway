@@ -23,7 +23,7 @@ async function resolveFetch() {
 let fetch: any;
 
 beforeAll(async () => {
-  process.env.QFLUSH_TOKEN = 'test-token';
+  process.env.NEZ_ADMIN_TOKEN = 'test-token';
   process.env.QFLUSH_SAFE_CI = '1';
   fetch = await resolveFetch();
   // ensure server started and ready

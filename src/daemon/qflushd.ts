@@ -1123,6 +1123,9 @@ if (_argv1 === __filename) {
     try {
       await startServer(port);
       console.warn('[qflushd] ✅ server ready');
+      if (process.env.QFLUSH_WATCHDOG !== '0') {
+        startWatchdog();
+      }
     } catch (e) {
       console.error('[qflushd] ❌ failed to start', e);
       process.exit(1);
@@ -1176,8 +1179,4 @@ function startWatchdog({ url = 'http://127.0.0.1:' + (process.env.PORT || proces
   check();
 }
 
-// Activer le watchdog si pas désactivé
-if (process.env.QFLUSH_WATCHDOG !== '0') {
-  startWatchdog();
-}
 // --- END QFLUSH WATCHDOG ---

@@ -11,3 +11,4 @@ spyder/.env
 .vs/
 .DS_Store
 Thumbs.db
+*.tgz

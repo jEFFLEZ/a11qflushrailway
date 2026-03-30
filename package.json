@@ -1,6 +1,6 @@
 {
   "name": "@funeste38/qflush",
-  "version": "4.0.10",
+  "version": "4.0.11",
   "description": "QFLUSH orchestrator",
   "type": "module",
   "bin": {
@@ -70,7 +70,7 @@
   "dependencies": {
     "@funeste38/bat": "^1.0.2",
     "@funeste38/envaptex": "^1.0.3",
-    "@funeste38/freeland": "npm:freeland@^0.1.2",
+    "@funeste38/freeland": "^0.2.2",
     "@funeste38/nezlephant": "^1.0.4",
     "@funeste38/rome": "^1.5.5",
     "@funeste38/spyder": "^1.0.4",

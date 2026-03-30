@@ -1,6 +1,6 @@
 {
   "name": "@funeste38/spyder",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Spyder package for Funesterie — local assistant components",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,7 +26,7 @@
   "author": "jEFFLEZ",
   "license": "MIT",
   "dependencies": {
-    "@funeste38/freeland": "npm:freeland@^0.1.2",
+    "@funeste38/freeland": "^0.2.2",
     "@funeste38/nezlephant": "^1.0.4"
   },
   "publishConfig": {

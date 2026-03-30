@@ -77,6 +77,56 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
   res.end(JSON.stringify(payload));
 }
 
+function previewBody(rawBody: string, maxLength = 160): string {
+  return String(rawBody || '')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .slice(0, maxLength);
+}
+
+function parseRequestPayload(rawBody: string, context = 'request body') {
+  const initial = String(rawBody || '').replace(/^\uFEFF/, '').trim();
+  if (!initial) return {};
+
+  let candidate: any = initial;
+  let lastError: unknown = null;
+
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (typeof candidate !== 'string') break;
+    const text = candidate.replace(/^\uFEFF/, '').trim();
+    if (!text) return {};
+
+    try {
+      candidate = JSON.parse(text);
+      continue;
+    } catch (error) {
+      lastError = error;
+      if (depth === 0) {
+        try {
+          const repairedEscapedJson = text.replace(/(\\+)"/g, (_match, slashes: string) => `${'\\'.repeat(Math.max(0, slashes.length - 1))}"`);
+          candidate = JSON.parse(repairedEscapedJson);
+          continue;
+        } catch {
+          // fall through to secondary recovery below
+        }
+        try {
+          candidate = JSON.parse(`"${text.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}"`);
+          continue;
+        } catch {
+          // fall through to enriched error below
+        }
+      }
+      break;
+    }
+  }
+
+  if (candidate == null) return {};
+  if (typeof candidate === 'object' && !Array.isArray(candidate)) return candidate;
+
+  const message = lastError instanceof Error ? lastError.message : 'invalid_json_payload';
+  throw new Error(`${context}: ${message} | preview=${previewBody(initial)}`);
+}
+
 function parseCsvList(raw: unknown): string[] {
   return String(typeof raw === 'string' ? raw : '')
     .split(',')
@@ -502,7 +552,7 @@ export async function startServer(port?: number) {
                 if (!ensureAuthorized(req, res, { optional: true })) {
                   return;
                 }
-                const payload = body ? JSON.parse(body) : {};
+                const payload = parseRequestPayload(body, 'chat_completion_payload');
                 const messages = Array.isArray(payload?.messages) ? payload.messages : null;
                 if (!messages) {
                   sendJson(res, 400, { error: 'invalid_messages' });
@@ -567,7 +617,7 @@ export async function startServer(port?: number) {
                 if (!ensureAuthorized(req, res, { optional: true })) {
                   return;
                 }
-                const payload = body ? JSON.parse(body) : {};
+                const payload = parseRequestPayload(body, 'run_payload');
                 const flow = String(payload?.flow || '').trim();
                 if (!flow) {
                   sendJson(res, 400, { ok: false, error: 'missing_flow' });
@@ -600,7 +650,7 @@ export async function startServer(port?: number) {
                 if (!ensureAuthorized(req, res)) {
                   return;
                 }
-                const payload = body ? JSON.parse(body) : {};
+                const payload = parseRequestPayload(body, 'admin_run_payload');
                 const flow = String(payload?.flow || '').trim();
                 if (!flow) {
                   sendJson(res, 400, { ok: false, error: 'missing_flow' });
@@ -689,7 +739,7 @@ export async function startServer(port?: number) {
               if (!ensureAuthorized(req, res)) {
                 return;
               }
-              const payload = body ? JSON.parse(body) : {};
+              const payload = parseRequestPayload(body, 'ephemeral_set_payload');
               const result = await setEphemeralMemory({
                 key: payload?.key,
                 namespace: payload?.namespace,
@@ -712,7 +762,7 @@ export async function startServer(port?: number) {
               if (!ensureAuthorized(req, res)) {
                 return;
               }
-              const payload = body ? JSON.parse(body) : {};
+              const payload = parseRequestPayload(body, 'ephemeral_touch_payload');
               const result = await touchEphemeralMemory({
                 key: payload?.key,
                 namespace: payload?.namespace,
@@ -733,7 +783,7 @@ export async function startServer(port?: number) {
               if (!ensureAuthorized(req, res)) {
                 return;
               }
-              const payload = body ? JSON.parse(body) : {};
+              const payload = parseRequestPayload(body, 'ephemeral_delete_payload');
               const result = await deleteEphemeralMemory({
                 key: payload?.key,
                 namespace: payload?.namespace,
@@ -753,7 +803,7 @@ export async function startServer(port?: number) {
               if (!ensureAuthorized(req, res)) {
                 return;
               }
-              const payload = body ? JSON.parse(body) : {};
+              const payload = parseRequestPayload(body, 'ephemeral_clear_payload');
               const result = await clearEphemeralMemory({
                 namespace: String(payload?.namespace || parsed.query.namespace || '').trim() || undefined,
                 scope: String(payload?.scope || parsed.query.scope || '').trim() || undefined,
@@ -844,7 +894,7 @@ export async function startServer(port?: number) {
                 // POST /npz/checksum/store
                 if (method === 'POST' && parsed.pathname === '/npz/checksum/store') {
                   try {
-                    const obj = body ? JSON.parse(body) : {};
+                    const obj = parseRequestPayload(body, 'checksum_store_payload');
                     const id = obj.id;
                     let checksum = obj.checksum;
                     const ttlMs = obj.ttlMs ? Number(obj.ttlMs) : undefined;
@@ -888,7 +938,7 @@ export async function startServer(port?: number) {
                 // POST /npz/checksum/compute
                 if (method === 'POST' && parsed.pathname === '/npz/checksum/compute') {
                   try {
-                    const obj = body ? JSON.parse(body) : {};
+                    const obj = parseRequestPayload(body, 'checksum_compute_payload');
                     const rel = obj.path;
                     if (!rel) {
                       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -914,7 +964,7 @@ export async function startServer(port?: number) {
                 // POST /npz/checksum/verify
                 if (method === 'POST' && parsed.pathname === '/npz/checksum/verify') {
                   try {
-                    const obj = body ? JSON.parse(body) : {};
+                    const obj = parseRequestPayload(body, 'checksum_verify_payload');
                     const id = obj.id;
                     let checksum = obj.checksum;
                     const filePath = obj.path;

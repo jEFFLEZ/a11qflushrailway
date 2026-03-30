@@ -149,6 +149,30 @@ describe('qflush daemon API', () => {
     expect(Array.isArray(body.items)).toBe(true);
   });
 
+  it('POST /api/admin/run tolerates escaped JSON payloads', async () => {
+    const escapedBody = JSON.stringify({
+      flow: 'fs.search',
+      payload: {
+        path: process.cwd(),
+        pattern: 'package.json',
+      },
+    }).replace(/"/g, '\\"');
+
+    const response = await fetch(`${baseUrl()}/api/admin/run`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-qflush-token': 'test-token',
+      },
+      body: escapedBody,
+    } as any);
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.items)).toBe(true);
+  });
+
   it('POST /api/admin/run can manage ephemeral memory with TTL', async () => {
     __resetEphemeralMemoryFallbackStore();
 

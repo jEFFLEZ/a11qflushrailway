@@ -2,10 +2,10 @@
 nixPkgs = ["nodejs_22"]
 
 [phases.install]
-cmds = ["npm ci --include=dev"]
+cmds = ["NPM_CONFIG_PRODUCTION=false npm ci --include=dev"]
 
 [phases.build]
-cmds = ["npm run railway:build"]
+cmds = ["NPM_CONFIG_PRODUCTION=false npm run railway:build"]
 
 [start]
 cmd = "npm run railway:start"

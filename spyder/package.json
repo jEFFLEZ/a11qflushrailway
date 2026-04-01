@@ -1,7 +1,8 @@
 {
   "name": "@funeste38/spyder",
   "version": "1.0.5",
-  "description": "Spyder package for Funesterie — local assistant components",
+  "private": true,
+  "description": "Spyder workspace wrapper kept for qflush local tooling. Do not publish from this folder.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

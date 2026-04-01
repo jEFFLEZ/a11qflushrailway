@@ -1,6 +1,6 @@
 {
   "name": "@funeste38/qflush",
-  "version": "4.0.13",
+  "version": "4.0.14",
   "description": "QFLUSH orchestrator",
   "type": "module",
   "bin": {
@@ -73,7 +73,7 @@
     "@funeste38/freeland": "^0.2.2",
     "@funeste38/nezlephant": "^1.0.4",
     "@funeste38/rome": "^1.5.5",
-    "@funeste38/spyder": "^1.0.5",
+    "@funeste38/spyder": "^1.0.6",
     "@octokit/auth-app": "^8.2.0",
     "cookie-parser": "^1.4.7",
     "csv-stringify": "^6.7.0",

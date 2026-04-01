@@ -8,4 +8,4 @@ cmds = ["env -u NPM_CONFIG_PRODUCTION npm ci --include=dev"]
 cmds = ["env -u NPM_CONFIG_PRODUCTION npm run railway:build"]
 
 [start]
-cmd = "npm run railway:start"
+cmd = "node dist/daemon/qflushd.js"

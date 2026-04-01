@@ -14,6 +14,7 @@ Commands:
   kill         Kill running services
   purge        Clear caches, logs and sessions
   inspect      Show running services and ports
+  allmight     Audit duplicate families and propose canonicalization patches
   config       Generate missing .env/config files
   env          Manage env profiles (.qflush/env.profiles.json|yaml)
   secret import  Import secrets from a .env file into local encrypted store (Windows DPAPI)
@@ -31,6 +32,7 @@ Examples:
   qflush env init
   qflush env check dev
   qflush env generate railway --out .env.generated
+  qflush allmight propose D:/SPYDER
   qflush purge --fresh
 
 Scripts & helpers:

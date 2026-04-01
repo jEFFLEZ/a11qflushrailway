@@ -62,6 +62,7 @@ import runCopilotBridge from "./commands/copilot-bridge.js";
 import runRomeLinks from "./commands/rome-links.js";
 import runA11 from "./commands/a11.js";
 import runSpyder from "./commands/spyder.js";
+import runAllmight from "./commands/allmight.js";
 import { spawn } from 'child_process';
 import { enterSleepMode, exitSleepMode, jokerWipe } from './services.js';
 import { startQflushSystem } from './core/start-system.js';
@@ -236,6 +237,14 @@ if (isEntrypoint) {
       const code = await runSpyder(argv.slice(1));
       process.exit(code ?? 0);
     })();
+  }
+
+  if (first === 'allmight') {
+    (async () => {
+      const code = await runAllmight(argv.slice(1));
+      process.exit(code ?? 0);
+    })();
+    cliHandled = true;
   }
 
   if (first === 'engine' ) {

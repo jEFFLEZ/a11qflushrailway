@@ -1,6 +1,6 @@
 {
   "name": "@funeste38/qflush",
-  "version": "4.0.14",
+  "version": "4.0.15",
   "description": "QFLUSH orchestrator",
   "type": "module",
   "bin": {
@@ -68,6 +68,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@funeste38/allmight": "https://registry.npmjs.org/@funeste38/allmight/-/allmight-1.0.0.tgz",
     "@funeste38/bat": "^1.0.3",
     "@funeste38/envaptex": "^1.0.3",
     "@funeste38/freeland": "^0.2.2",

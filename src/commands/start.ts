@@ -549,6 +549,8 @@ export async function startModule(mod: string, opts: qflushOptions | undefined, 
 export async function runStart(opts?: qflushOptions) {
   logger.info("qflush: starting modules...");
 
+  const services = opts?.services?.length ? opts.services : Object.keys(SERVICE_MAP);
+
   // ensure .qflush and logs dir exist early to avoid races when starting services
   try {
     const qflushDir = path.join(process.cwd(), '.qflush');
@@ -562,14 +564,15 @@ export async function runStart(opts?: qflushOptions) {
   // Respect CI/dev flag to disable supervisor starting external services
   const disableSupervisor = process.env.QFLUSH_DISABLE_SUPERVISOR === '1' || String(process.env.QFLUSH_DISABLE_SUPERVISOR).toLowerCase() === 'true';
   if (disableSupervisor) {
+    if (services.includes('spyder')) {
+      await probeAndPersistSpyderPort();
+    }
     logger.warn('QFLUSH supervisor disabled via QFLUSH_DISABLE_SUPERVISOR, skipping start of external modules');
     return;
   }
 
   const detected = opts?.detected || (await detectModules());
   const paths = resolvePaths(detected);
-
-  const services = opts?.services?.length ? opts.services : Object.keys(SERVICE_MAP);
   const flags = opts?.flags || {};
 
   const waitForStart = Boolean(flags["wait"] || flags["--wait"] || false);

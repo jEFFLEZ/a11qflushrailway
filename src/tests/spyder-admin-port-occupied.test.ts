@@ -21,20 +21,26 @@ describe('spyder admin port occupied behavior', () => {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (err) { /* ignore */ }
     process.env = { ...OLD_ENV };
     if (server) {
-      try { server.close(); } catch (err) { /* ignore */ }
+      try {
+        server.close();
+      } catch (err) { /* ignore */ }
       server = null;
     }
     vi.restoreAllMocks();
   });
 
   it('does not persist spyder config when admin port is already bound', async () => {
-    // reserve a port
-    const listenPort = 52345;
     server = net.createServer(() => {});
-    await new Promise<void>((resolve, reject) => {
-      server!.listen(listenPort, '127.0.0.1', (err?: any) => {
-        if (err) reject(err); else resolve();
+    const listenPort = await new Promise<number>((resolve, reject) => {
+      server!.listen(0, '127.0.0.1', () => {
+        const address = server!.address();
+        if (!address || typeof address === 'string') {
+          reject(new Error('failed to resolve reserved admin port'));
+          return;
+        }
+        resolve(address.port);
       });
+      server!.once('error', reject);
     });
 
     process.env.QFLUSH_SPYDER_ADMIN_PORT = String(listenPort);

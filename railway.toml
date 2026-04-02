@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "tsc -p . --outDir dist && node ./tools/copy-services-proxy.mjs && echo daemon-built"
+buildCommand = "npm run railway:build"
 
 [deploy]
 startCommand = "node dist/daemon/qflushd.js"

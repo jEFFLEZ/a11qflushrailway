@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20"]
 cmds = ["env -u NPM_CONFIG_PRODUCTION npm ci --include=dev"]
 
 [phases.build]
-cmds = ["tsc -p . --outDir dist && node ./tools/copy-services-proxy.mjs && echo daemon-built"]
+cmds = ["npm run railway:build"]
 
 [start]
 cmd = "node dist/daemon/qflushd.js"

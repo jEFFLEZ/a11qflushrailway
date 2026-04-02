@@ -1,5 +1,8 @@
+[variables]
+NIXPACKS_NODE_VERSION = "20"
+
 [phases.setup]
-nixPkgs = ["nodejs"]
+nixPkgs = ["..."]
 
 [phases.install]
 cmds = ["env -u NPM_CONFIG_PRODUCTION npm ci --include=dev"]

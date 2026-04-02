@@ -9,7 +9,7 @@ It combines a CLI, a long-running daemon, ephemeral memory endpoints, NPZ helper
 ## Current package line
 
 - npm package: `@funeste38/qflush`
-- current repo version: `4.0.10`
+- current repo version: `4.0.16`
 - daemon entry point: `src/daemon/qflushd.ts`
 
 ## What qflush is good at
@@ -121,5 +121,5 @@ npm run typecheck
 - `@funeste38/qflush-runner` for lightweight CI usage
 - `@funeste38/rome` for workspace and process control
 - `@funeste38/nezlephant` for OC8 payload transport
-- `freeland` for value normalization
+- `@funeste38/freeland` for value normalization
 - `@funeste38/bat` for adaptive runtime behaviour

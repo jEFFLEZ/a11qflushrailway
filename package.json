@@ -1,6 +1,6 @@
 {
   "name": "@funeste38/qflush",
-  "version": "4.0.15",
+  "version": "4.0.16",
   "description": "QFLUSH orchestrator",
   "type": "module",
   "bin": {

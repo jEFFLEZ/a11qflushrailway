@@ -27,7 +27,7 @@
     "build:daemon": "tsc -p . --outDir dist && node ./tools/copy-services-proxy.mjs && echo daemon-built",
     "build:cortex": "tsc -p . --outDir dist && node ./tools/copy-services-proxy.mjs && echo cortex-built",
     "build": "npm run build:daemon && npm run build:cortex",
-    "railway:build": "npm run build:daemon",
+    "railway:build": "tsc -p . --outDir dist && node ./tools/copy-services-proxy.mjs && echo daemon-built",
     "railway:start": "node dist/daemon/qflushd.js",
     "test": "vitest --run",
     "test:ci": "vitest --run --coverage",

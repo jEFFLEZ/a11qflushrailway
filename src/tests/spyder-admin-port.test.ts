@@ -26,6 +26,7 @@ describe('spyder admin port persistence', () => {
   it('writes .qflush/spyder.config.json with adminPort when QFLUSH_SPYDER_ADMIN_PORT is set', async () => {
     // Ensure services.startService is mocked so runStart does not try to actually start processes
     vi.mock('../../src/services', () => ({ startService: async () => { return; } }));
+    vi.mock('../../src/supervisor/index.js', () => ({ startProcess: vi.fn() }));
 
     process.env.QFLUSH_SPYDER_ADMIN_PORT = '51234';
 
